@@ -1,0 +1,17 @@
+# Secrets - never commit
+.env
+.streamlit/secrets.toml
+
+# Vector index - rebuilt automatically by build_index.py
+index/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Course reference PDFs (kept locally, not published)
+*.pdf
+
+# macOS
+.DS_Store

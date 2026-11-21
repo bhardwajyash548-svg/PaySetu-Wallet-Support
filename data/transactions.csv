@@ -1,0 +1,13 @@
+txn_id,phone_last4,type,amount_inr,date,status
+PS9995683007,7938,Send money,860,11-Nov-2026,Success
+PS6543961946,3067,Bill payment,4000,16-Nov-2026,Failed
+PS4348326222,3794,Add money,750,11-Nov-2026,Success
+PS1470821571,6791,Send money,299,15-Nov-2026,Success
+PS7798006033,7572,Bill payment,750,17-Nov-2026,Reversed
+PS4114501211,7816,Add money,500,17-Nov-2026,Success
+PS1088803592,9830,Send money,1200,12-Nov-2026,Success
+PS3499814198,8561,Bill payment,750,20-Nov-2026,Pending
+PS6101317238,3445,Add money,1340,15-Nov-2026,Reversed
+PS7690114158,9363,Send money,750,16-Nov-2026,Success
+PS7505664674,3473,Bill payment,1200,15-Nov-2026,Failed
+PS3722534665,8239,Add money,4000,20-Nov-2026,Pending

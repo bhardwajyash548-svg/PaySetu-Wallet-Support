@@ -1,0 +1,84 @@
+PaySetu Wallet Help Docs
+PaySetu Wallet is a made-up business. This document is practice data for a learning project.
+PaySetu Wallet is a made-up UPI payments app with a small wallet, bill payments and cashback offers.
+
+Frequently asked questions
+
+Q: How do I send money?
+A: Tap Send, enter a UPI ID, phone number or scan a QR code, enter the amount and confirm with your UPI PIN.
+
+Q: What is the daily UPI limit?
+A: ₹1,00,000 a day and up to 20 transactions a day. Some banks set lower limits.
+
+Q: My payment failed but money was deducted.
+A: Failed payments are reversed to your bank automatically within 3 working days.
+
+Q: My payment is pending. What should I do?
+A: Wait up to 48 hours. A pending payment either completes or is reversed on its own.
+
+Q: I sent money to the wrong UPI ID. Can you reverse it?
+A: We cannot reverse a payment sent to a valid UPI ID. Ask the person to return it, and raise a dispute within 30 days if they don't.
+
+Q: What is the PaySetu wallet?
+A: A prepaid balance for quick payments, bills and recharges. Add money by UPI, debit card or credit card.
+
+Q: How much can I keep in my wallet?
+A: Up to ₹10,000 without full KYC and up to ₹2,00,000 with full KYC.
+
+Q: How do I complete KYC?
+A: Go to Profile, tap KYC and verify with your PAN and Aadhaar OTP. It usually takes a few minutes.
+
+Q: Can I move wallet money to my bank?
+A: Yes, only with full KYC. A 2% fee applies.
+
+Q: Which bills can I pay?
+A: Electricity, gas, water, broadband, DTH, postpaid mobile, FASTag and credit card bills.
+
+Q: I paid a bill but the provider still shows it unpaid.
+A: Providers can take up to 48 hours to update. Keep the payment receipt from the app.
+
+Q: When will I get cashback?
+A: Cashback is added to your wallet within 24 hours of an eligible payment.
+
+Q: Will PaySetu ever ask for my PIN or OTP?
+A: Never. PaySetu never asks for your UPI PIN, OTP, CVV or full card number on call, chat or SMS.
+
+Q: I think my account is hacked. What do I do?
+A: Tap Block account in Settings at once and call the cybercrime helpline 1930. Then report it to support.
+
+Q: How do I change my UPI PIN?
+A: Go to Bank accounts, choose the account and tap Change UPI PIN. You need your debit card details.
+
+Q: How do I add a bank account?
+A: Go to Bank accounts, tap Add and pick your bank. Your phone number must be linked to that bank.
+
+Q: I changed my phone. How do I log in?
+A: Install the app, verify your number with an OTP and set up UPI again with your debit card.
+
+Q: When will a merchant refund reach me?
+A: Merchant refunds reach the source account in 5 to 7 working days after the merchant starts them.
+
+Q: How long does a dispute take?
+A: Disputes are reviewed within 7 working days. You get updates by SMS.
+
+Q: Are there fees for UPI payments?
+A: No fees for UPI payments from a bank account. Adding money by credit card has a 2% fee.
+
+Policies
+
+Policy: Failed, pending and wrong payments policy
+- Failed payments are reversed to the bank automatically within 3 working days.
+- Pending payments complete or are reversed within 48 hours.
+- Payments to a valid but wrong UPI ID cannot be reversed by PaySetu. A dispute can be raised within 30 days.
+- Disputes are reviewed within 7 working days.
+
+Policy: Account security and fraud policy
+- PaySetu never asks for a UPI PIN, OTP, CVV or full card or bank account number.
+- If an account may be hacked, the user should tap Block account, call the cybercrime helpline 1930, and report it to support at once.
+- Transaction details are shared only with the account holder.
+
+Policy: Wallet and KYC policy
+- Wallet limit without full KYC: ₹10,000. With full KYC: ₹2,00,000.
+- Full KYC needs PAN and Aadhaar OTP verification.
+- Wallet to bank transfers need full KYC and carry a 2% fee.
+- Adding money by credit card carries a 2% fee.
