@@ -1,17 +1,19 @@
-"""Setu: the PaySetu Wallet support agent (Google ADK).
+"""The two ADK agents: Setu (support) and the QA reviewer.
 
-`adk web` (run from the project folder) finds `root_agent` here.
+`adk web` (run from the project folder) finds `root_agent` here. (adk web shows Setu's
+raw replies; the QA review step runs in chat.py, used by the Streamlit app and test scripts.)
 """
+import logging
+from typing import Literal
+
 from google.adk.agents import Agent
 from google.genai import types
-
-from .config import CHAT_MODEL, retry_options
-from .prompts import SETU_INSTRUCTION
-from .tools import search_help_docs
-
-import logging
+from pydantic import BaseModel, Field
 
 from . import rag
+from .config import CHAT_MODEL, retry_options
+from .prompts import QA_INSTRUCTION, SETU_INSTRUCTION
+from .tools import create_ticket, get_transaction_status, search_help_docs
 
 # Build the help-docs index at startup if index/ is missing (e.g. a fresh Streamlit Cloud deploy).
 try:
@@ -19,14 +21,31 @@ try:
 except Exception as exc:  # don't crash startup; search_help_docs will report the problem
     logging.warning("Could not prepare help docs index: %s", exc)
 
+
+def _config(temperature: float) -> types.GenerateContentConfig:
+    return types.GenerateContentConfig(temperature=temperature, http_options=retry_options())
+
+
 root_agent = Agent(
     name="setu",
     model=CHAT_MODEL,
     description="PaySetu Wallet customer support agent.",
     instruction=SETU_INSTRUCTION,
-    tools=[search_help_docs],
-    generate_content_config=types.GenerateContentConfig(
-        temperature=0.2,  # low = more consistent, factual replies
-        http_options=retry_options(),
-    ),
+    tools=[search_help_docs, create_ticket, get_transaction_status],
+    generate_content_config=_config(0.2),  # low = consistent, factual replies
+)
+
+
+class QAResult(BaseModel):
+    result: Literal["PASS", "FAIL"] = Field(description="PASS or FAIL")
+    reason: str = Field(description="One short sentence")
+
+
+qa_agent = Agent(
+    name="qa_reviewer",
+    model=CHAT_MODEL,
+    description="Reviews Setu's draft replies before the customer sees them.",
+    instruction=QA_INSTRUCTION,
+    output_schema=QAResult,
+    generate_content_config=_config(0.0),
 )
