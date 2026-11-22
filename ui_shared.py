@@ -86,12 +86,23 @@ BRAND_CSS = """
 """
 
 
+def _streamlit_secrets() -> dict:
+    try:
+        return {k: v for k, v in st.secrets.items() if not isinstance(v, dict)}
+    except Exception:  # no secrets.toml on this machine
+        return {}
+
+
 def _secret(name: str) -> str:
-    """Read a setting from Streamlit secrets (Streamlit Cloud / local secrets.toml),
-    falling back to an environment variable (Render and other hosts)."""
+    """Read a setting from Streamlit secrets (Streamlit Cloud / local secrets.toml), environment variables
+    (Render: also common spellings like ADMIN_PASSWORD) or Render Secret Files."""
+    if name in ("APP_PASSCODE", "ADMIN_PASSCODE"):
+        from paysetu_agent.auth import find_setting
+
+        return find_setting(name, dict(os.environ), _streamlit_secrets())
     try:
         value = str(st.secrets.get(name, "")).strip()
-    except Exception:  # no secrets.toml on this machine
+    except Exception:
         value = ""
     return value or os.environ.get(name, "").strip()
 
@@ -188,8 +199,14 @@ def require_admin() -> str:
                  "admin pages. Change it in secrets / environment settings.")
         st.stop()
     if not expected:
+        from paysetu_agent.auth import similar_setting_names
+
+        found = similar_setting_names(dict(os.environ))
         st.error("ADMIN_PASSCODE is not set. Add it to .streamlit/secrets.toml (laptop) or the app's "
                  "Secrets / environment (cloud). Admin pages stay locked until then.")
+        st.caption("Passcode-like variable names this server can see (values hidden): "
+                   + (", ".join(found) if found else "none - on Render, add ADMIN_PASSCODE under Environment and "
+                      "choose 'Save, rebuild, and deploy'."))
         st.stop()
     guard = _guard("admin_guard")
     if guard.is_locked():

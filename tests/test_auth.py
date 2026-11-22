@@ -96,3 +96,46 @@ def test_customer_dashboard_shows_no_customer_text():
     table = src[src.index('st.subheader("Recent tickets")') if 'st.subheader("Recent tickets")' in src
                 else src.index('card("Recent tickets")'):]
     assert '"customer_message"' not in table and '"summary"' not in table
+
+
+# ---------- finding passcodes on hosts like Render ----------
+from paysetu_agent.auth import find_setting, similar_setting_names  # noqa: E402
+
+
+@pytest.mark.parametrize("env", [
+    {"ADMIN_PASSCODE": "s3cret"},
+    {"ADMIN_PASSCODE ": "s3cret"},            # stray space in the name
+    {"admin_passcode": "s3cret"},             # lower case
+    {"ADMIN_PASSWORD": "s3cret"},             # common mix-up
+    {"ADMIN-PASSCODE": "s3cret"},
+    {"ADMIN_PASSCODE": '"s3cret"'},           # quotes typed into the value box
+    {"ADMIN_PASSCODE": "  s3cret  "},
+])
+def test_admin_passcode_found_despite_small_mistakes(env):
+    assert find_setting("ADMIN_PASSCODE", env, secret_dirs=[]) == "s3cret"
+
+
+def test_missing_or_empty_admin_passcode_stays_locked():
+    assert find_setting("ADMIN_PASSCODE", {}, secret_dirs=[]) == ""
+    assert find_setting("ADMIN_PASSCODE", {"ADMIN_PASSCODE": "   "}, secret_dirs=[]) == ""
+    assert find_setting("ADMIN_PASSCODE", {"APP_PASSCODE": "x"}, secret_dirs=[]) == ""   # app code never reused
+
+
+def test_streamlit_secrets_win_over_environment():
+    assert find_setting("ADMIN_PASSCODE", {"ADMIN_PASSCODE": "env"}, {"ADMIN_PASSCODE": "toml"}, []) == "toml"
+
+
+def test_render_secret_files(tmp_path):
+    (tmp_path / "ADMIN_PASSCODE").write_text("from-file\n")
+    assert find_setting("ADMIN_PASSCODE", {}, secret_dirs=[str(tmp_path)]) == "from-file"
+    other = tmp_path / "b"; other.mkdir()
+    (other / "secrets.toml").write_text('ADMIN_PASSCODE = "from-toml"\n')
+    assert find_setting("ADMIN_PASSCODE", {}, secret_dirs=[str(other)]) == "from-toml"
+    third = tmp_path / "c"; third.mkdir()
+    (third / ".env").write_text("ADMIN_PASSCODE=from-env-file\n")
+    assert find_setting("ADMIN_PASSCODE", {}, secret_dirs=[str(third)]) == "from-env-file"
+
+
+def test_error_hint_shows_names_never_values():
+    names = similar_setting_names({"ADMIN_PASSWORD": "topsecret", "APP_PASSCODE": "x", "PATH": "/bin"})
+    assert names == ["ADMIN_PASSWORD", "APP_PASSCODE"] and "topsecret" not in str(names)
