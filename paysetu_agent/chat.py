@@ -18,7 +18,8 @@ import uuid
 from google.adk.runners import InMemoryRunner, Runner
 from google.genai import types
 
-from . import config, fraud_detection, rag, sentiment_analysis, storage, ticket_manager
+from . import (config, conversation_summary, fraud_detection, rag, sentiment_analysis, storage,
+               ticket_manager)
 from .agent import fallback_agent, qa_agent, qa_fallback_agent, root_agent
 from .prompts import NO_INFO_REPLY, REWRITE_INSTRUCTION, SETU_INSTRUCTION
 from .safety import CONTEXT_TAG, redact, strip_fake_context
@@ -88,11 +89,25 @@ def _source_of(reply: str) -> str:
 _DEVANAGARI = re.compile(r"[\u0900-\u097F]")
 
 
+# Common Hindi words written in Roman letters - 2+ of them means the customer wrote Hinglish.
+_HINGLISH = {"hai", "hain", "ho", "hoga", "gaya", "gayi", "gaye", "gya", "nahi", "nahin", "mera", "meri", "mere",
+             "kya", "kab", "kaise", "kitna", "kitni", "kyun", "kyon", "aur", "mujhe", "maine", "mene", "ka", "ki",
+             "ke", "ko", "se", "paise", "karo", "karna", "kar", "raha", "rahi", "milega", "mila", "bhai", "yaar",
+             "abhi", "tak", "kaun", "kahan", "batao", "chahiye", "wapas", "kat", "diya", "liya"}
+
+
+def _hinglish_words(text: str) -> int:
+    return sum(1 for w in re.findall(r"[a-z]+", (text or "").lower()) if w in _HINGLISH)
+
+
 def _script_mismatch(message: str, reply: str) -> str:
-    """Hinglish/English in Roman letters must never get a Devanagari reply."""
+    """Reply must match the customer's language and script (Hindi / Hinglish / English)."""
     if not _DEVANAGARI.search(message) and _DEVANAGARI.search(reply):
         return ("The customer wrote in Roman letters (Hinglish/English) but the draft uses Devanagari. "
                 "Rewrite in Roman letters only: simple Hinglish if the customer used Hindi words, else English.")
+    if not _DEVANAGARI.search(message) and _hinglish_words(message) >= 2 and _hinglish_words(reply) < 2:
+        return ("The customer wrote in Hinglish (Hindi words in Roman letters) but the draft is in English. "
+                "Rewrite in simple Hinglish using Roman letters, keeping every amount, day and source exact.")
     return ""
 
 
@@ -213,6 +228,9 @@ class SetuChat:
                                 if fallback_agent else None)
         self.mood = sentiment_analysis.ConversationSentiment()
         self.model_used = config.CHAT_MODEL
+        self.turns: list[tuple[str, str]] = []   # (redacted customer message, final reply)
+        self.summarized: set[str] = set()        # tickets that already have a hand-off summary
+        self.verified: dict[str, dict] = {}      # transactions verified in this chat (ID + phone last 4)
 
     def _agent_turn(self, text: str):
         """Ask Setu; if the main model's quota is used up, ask the backup model instead."""
@@ -250,11 +268,12 @@ class SetuChat:
             draft, tool_results = self._agent_turn(agent_input)
         except Exception as exc:  # Gemini busy/quota errors after all retries
             logging.warning("Setu could not reply: %s", exc)
-            self._escalate(safe_message, sentiment, mood, risk, [], out)
+            self._escalate(safe_message, sentiment, mood, risk, [], out, None)
             reply = _localised(safe_message, BUSY_REPLY, BUSY_REPLY_HI)
             if risk["level"] == "High":  # safety steps can never be skipped, even when Gemini is down
                 reply += "\n\n" + _localised(safe_message, FRAUD_STEPS_EN, FRAUD_STEPS_HI)
             out["reply"] = reply + self._ticket_lines(out["tickets"], "", safe_message)
+            self._summarize(safe_message, out)
             self._finish(safe_message, out, started)
             return out
         draft = draft or BUSY_REPLY
@@ -269,12 +288,16 @@ class SetuChat:
         txn = next((r.get("transaction") for name, r in tool_results
                     if name == "get_transaction_status" and r.get("status") == "found"), None)
         if txn:
-            out["transaction"] = txn
+            self.verified[txn["txn_id"]] = txn   # remembered for the whole chat
             risk = fraud_detection.combine(risk, fraud_detection.assess(safe_message, removed, txn))
             out["fraud"] = risk
 
+        # Latest transaction verified in THIS chat (this message or an earlier one).
+        txn = txn or (list(self.verified.values())[-1] if self.verified else None)
+        out["transaction"] = txn
+
         # Escalation safety nets (High fraud -> high-priority ticket; angry/frustrated -> ticket).
-        tickets = self._escalate(safe_message, sentiment, mood, risk, tickets, out)
+        tickets = self._escalate(safe_message, sentiment, mood, risk, tickets, out, txn)
         for tid in tickets:
             if not any(t.get("result", {}).get("ticket_id") == tid for t in tools):
                 tools.append({"tool": "create_ticket", "result": {"ticket_id": tid, "created_by": "PaySetu safety check"}})
@@ -312,11 +335,12 @@ class SetuChat:
         reply += self._ticket_lines(tickets, reply, safe_message)
 
         out["reply"] = reply
+        self._summarize(safe_message, out)
         self._finish(safe_message, out, started)
         return out
 
     # ---------- helpers ----------
-    def _escalate(self, safe_message, sentiment, mood, risk, tickets, out) -> list[str]:
+    def _escalate(self, safe_message, sentiment, mood, risk, tickets, out, transaction=None) -> list[str]:
         """Create the tickets the rules require if the AI did not, then tag every ticket
         from this turn with session, sentiment and fraud risk."""
         tickets = list(tickets)
@@ -335,12 +359,30 @@ class SetuChat:
                     session_id=self.session_id)
                 tickets.append(t["ticket_id"])
             for tid in tickets:
+                t = ticket_manager.get_ticket(tid) or {}
+                category = ticket_manager.classify(t.get("customer_message", safe_message), t.get("reason", ""),
+                                                   transaction, risk["level"])
                 ticket_manager.update_fields(tid, session_id=self.session_id, sentiment=sentiment["label"],
-                                             fraud_risk=risk["level"], model=out["model"])
+                                             fraud_risk=risk["level"], category=category)
         except Exception as exc:
             logging.warning("Escalation check failed: %s", exc)
         out["tickets"] = tickets
         return tickets
+
+    def _summarize(self, safe_message: str, out: dict) -> None:
+        """Remember this turn; write a hand-off summary for every new ticket from it."""
+        self.turns.append((safe_message, out["reply"]))
+        for tid in out["tickets"]:
+            if tid in self.summarized:
+                continue
+            try:
+                ticket = ticket_manager.get_ticket(tid) or {"ticket_id": tid}
+                summary = conversation_summary.build_summary(
+                    self.turns, ticket, out["mood"], out["sentiment"], out["fraud"], out["transaction"])
+                ticket_manager.update_fields(tid, summary=summary)
+                self.summarized.add(tid)
+            except Exception as exc:
+                logging.warning("Could not write summary for %s: %s", tid, exc)
 
     @staticmethod
     def _ticket_lines(tickets: list[str], reply: str, safe_message: str) -> str:

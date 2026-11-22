@@ -17,6 +17,8 @@ def tmp_logs(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CHAT_LOG_FILE", tmp_path / "chat_log.csv")
     monkeypatch.setattr(config, "QA_LOG_FILE", tmp_path / "qa_log.csv")
     monkeypatch.setattr(config, "FRAUD_ALERTS_FILE", tmp_path / "fraud_alerts.csv")
+    monkeypatch.setattr(config, "TICKET_HISTORY_FILE", tmp_path / "ticket_history.csv")
+    monkeypatch.setattr(config, "AUDIT_LOG_FILE", tmp_path / "audit_log.csv")
     return tmp_path
 
 

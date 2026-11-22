@@ -6,7 +6,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from paysetu_agent import config
+from paysetu_agent import config, ticket_manager
 from ui_shared import hero
 
 # Chart colours: fixed categorical order (validated palette), used by role, never cycled.
@@ -195,7 +195,7 @@ def activity(chats):
 st.markdown(DASH_CSS, unsafe_allow_html=True)
 hero("Support Dashboard", "Tickets, customer questions and answer quality at a glance")
 
-tickets = load(config.TICKETS_FILE, ["ticket_id", "time", "customer_message", "reason", "priority", "status"])
+tickets = pd.DataFrame(ticket_manager.all_tickets(), columns=ticket_manager.TICKET_FIELDS).fillna("")
 chats = load(config.CHAT_LOG_FILE, ["time", "message", "reply", "source"])
 qa = load(config.QA_LOG_FILE, ["time", "message", "draft", "result", "reason"])
 
@@ -292,9 +292,12 @@ with right:
 
 box = card("Recent tickets")
 if len(tickets):
-    show = tickets.iloc[::-1].head(20)[["ticket_id", "time", "priority", "reason", "customer_message", "status"]]
+    if "category" not in tickets.columns:
+        tickets["category"] = ""
+    show = tickets.iloc[::-1].head(20)[["ticket_id", "time", "priority", "category", "reason", "customer_message",
+                                        "status"]]
     box.dataframe(show, hide_index=True, use_container_width=True, column_config={
-        "ticket_id": "Ticket", "time": "Time", "priority": "Priority", "reason": "Reason",
+        "ticket_id": "Ticket", "time": "Time", "priority": "Priority", "category": "Category", "reason": "Reason",
         "customer_message": st.column_config.TextColumn("Summary", width="large"), "status": "Status"})
 else:
     box.markdown('<div class="ps-empty">No tickets yet.</div>', unsafe_allow_html=True)
