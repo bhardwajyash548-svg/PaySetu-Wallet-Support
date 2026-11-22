@@ -20,7 +20,7 @@ def load(path, columns):
     try:
         return pd.read_csv(path, dtype=str).fillna("") if path.exists() else pd.DataFrame(columns=columns)
     except Exception as exc:
-        st.warning(f"Could not read {path.name}: {exc}")
+        st.warning(f"Could not read {path.name}.")
         return pd.DataFrame(columns=columns)
 
 

@@ -5,6 +5,8 @@ import streamlit as st
 
 from ui_shared import hero, tickets_sidebar
 
+MAX_MESSAGES_PER_CHAT = 60  # protects the Gemini quota from one runaway session
+
 USER_MARK = '<span class="ps-user"></span>'  # lets CSS style customer bubbles
 
 JOURNEY_CSS = """
@@ -62,15 +64,24 @@ def render_journey(m: dict, idx: int) -> None:
         f'<div class="note">Shows only PaySetu records and policy (Source: {e(j["source"])}). '
         f'No live bank updates are shown.</div></div>', unsafe_allow_html=True)
 
+    from paysetu_agent import emailer
+
     cols = st.columns(2)
     r = m.get("receipt") or {}
-    try:
-        data, name = make_pdf(r.get("txn_id", ""), r.get("phone_last4", ""))  # re-verifies both values
-        label = "⬇ Download receipt (PDF)" if j["facts"]["status"] == "Success" else "⬇ Download status statement (PDF)"
-        cols[0].download_button(label, data=data, file_name=name, mime="application/pdf",
-                                key=f"pdf{idx}", use_container_width=True)
-    except ReceiptError:
-        cols[0].caption("Document unavailable: transaction not verified.")
+    doc = "receipt" if j["facts"]["status"] == "Success" else "status statement"
+    if emailer.is_configured():
+        # Setu emails the PDF: it asks for the address, then calls send_receipt_email.
+        if cols[0].button(f"📧 Email me this {doc}", key=f"mail{idx}", use_container_width=True):
+            st.session_state.pending_prompt = f"Please email the {doc} for transaction {j['txn_id']} to me."
+            st.rerun()
+    else:
+        # Fallback when email is not set up on this server, so the demo always works.
+        try:
+            data, name = make_pdf(r.get("txn_id", ""), r.get("phone_last4", ""))  # re-verifies both values
+            cols[0].download_button(f"⬇ Download {doc} (PDF)", data=data, file_name=name, mime="application/pdf",
+                                    key=f"pdf{idx}", use_container_width=True)
+        except ReceiptError:
+            cols[0].caption("Document unavailable: transaction not verified.")
     if j["needs_ticket"] and not m.get("ticketed"):
         if cols[1].button("Raise a ticket for this payment", key=f"tkt{idx}", use_container_width=True):
             st.session_state.pending_prompt = f"Please raise a ticket for transaction {j['txn_id']}."
@@ -83,7 +94,9 @@ def main():
     try:
         chat, config = load_engine()
     except Exception as exc:
-        st.error(f"Setu could not start: {exc}")
+        import logging
+        logging.exception("Setu could not start: %s", exc)  # details go to the server log only
+        st.error("Setu is unavailable right now. Please try again in a few minutes.")
         st.stop()
 
     if "setu" not in st.session_state:
@@ -123,6 +136,9 @@ def main():
     prompt = (st.chat_input("Ask about payments, UPI, wallet, KYC, bills, cashback...") or clicked
               or st.session_state.pop("pending_prompt", None))
     if not prompt:
+        return
+    if sum(1 for m in st.session_state.messages if m["role"] == "user") >= MAX_MESSAGES_PER_CHAT:
+        st.warning("This chat has reached its message limit. Start a new chat from the sidebar to continue.")
         return
 
     from paysetu_agent.safety import redact

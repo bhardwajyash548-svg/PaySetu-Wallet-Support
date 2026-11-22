@@ -49,8 +49,10 @@ _PHONE = re.compile(r"(?<![A-Za-z0-9])(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d(\d{4})(
 
 def sanitize(text: str) -> str:
     """Remove secrets and mask full phone numbers (keep only the last 4 digits)."""
+    from .emailer import mask_email
+
     safe, _ = redact(text or "")
-    return _PHONE.sub(lambda m: "XXXXXX" + m.group(1), safe)
+    return mask_email(_PHONE.sub(lambda m: "XXXXXX" + m.group(1), safe))
 
 
 def _transcript(turns: list[tuple[str, str]]) -> str:

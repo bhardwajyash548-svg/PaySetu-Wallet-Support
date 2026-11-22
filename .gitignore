@@ -23,6 +23,7 @@ qa_log.csv
 fraud_alerts.csv
 ticket_history.csv
 audit_log.csv
+email_log.csv
 test_runs/
 
 # Local helper tools (GitHub CLI)

@@ -98,9 +98,10 @@ def _secret(name: str) -> str:
 
 def load_secrets() -> None:
     """API key: Streamlit secrets on Streamlit Cloud, env var on Render, .env on a laptop."""
-    key = _secret("GOOGLE_API_KEY")
-    if key and not os.environ.get("GOOGLE_API_KEY"):
-        os.environ["GOOGLE_API_KEY"] = key
+    for name in ("GOOGLE_API_KEY", "SMTP_USER", "SMTP_APP_PASSWORD", "SMTP_HOST", "SMTP_PORT", "SMTP_FROM_NAME"):
+        value = _secret(name)
+        if value and not os.environ.get(name):
+            os.environ[name] = value
 
 
 def apply_style() -> None:
@@ -112,6 +113,9 @@ def hero(title: str, subtitle: str) -> None:
         f'<div class="ps-hero"><div class="logo">₹</div><div><h1>{title}</h1><p>{subtitle}</p></div></div>',
         unsafe_allow_html=True,
     )
+
+
+ADMIN_IDLE_SECONDS = 30 * 60
 
 
 def _guard(key: str):
@@ -161,7 +165,12 @@ def require_admin() -> str:
     from paysetu_agent import ticket_manager
     from paysetu_agent.auth import admin_actor, clean_admin_name
 
+    if st.session_state.get("admin_ok") and time.time() - st.session_state.get("admin_seen", 0) > ADMIN_IDLE_SECONDS:
+        ticket_manager.audit(admin_actor(st.session_state), "admin_timeout", "-", "signed out after 30 min idle")
+        st.session_state.admin_ok = False
+        st.session_state.admin_timed_out = True
     if st.session_state.get("admin_ok"):
+        st.session_state.admin_seen = time.time()
         with st.sidebar:
             st.caption(f"Signed in as {st.session_state.admin_name} (admin)")
             if st.button("Sign out of admin", use_container_width=True):
@@ -171,7 +180,13 @@ def require_admin() -> str:
         return admin_actor(st.session_state)
 
     hero("Admin sign-in", "Ticket management and analytics are for PaySetu support staff only")
+    if st.session_state.pop("admin_timed_out", False):
+        st.info("You were signed out after 30 minutes without activity. Please sign in again.")
     expected = _secret("ADMIN_PASSCODE")
+    if expected and expected.strip() == _secret("APP_PASSCODE").strip():
+        st.error("ADMIN_PASSCODE must be different from APP_PASSCODE, otherwise every customer could open the "
+                 "admin pages. Change it in secrets / environment settings.")
+        st.stop()
     if not expected:
         st.error("ADMIN_PASSCODE is not set. Add it to .streamlit/secrets.toml (laptop) or the app's "
                  "Secrets / environment (cloud). Admin pages stay locked until then.")
@@ -192,6 +207,7 @@ def require_admin() -> str:
         result = guard.attempt(entered, expected)
         if result == "ok":
             st.session_state.admin_ok, st.session_state.admin_name = True, clean
+            st.session_state.admin_seen = time.time()
             ticket_manager.audit(f"{clean} (admin)", "admin_sign_in", "-", "success")
             st.rerun()
         ticket_manager.audit(f"{clean} (unverified)", "admin_sign_in_failed", "-",

@@ -26,6 +26,7 @@ QA_LOG_FILE = LOG_DIR / "qa_log.csv"
 FRAUD_ALERTS_FILE = LOG_DIR / "fraud_alerts.csv"
 TICKET_HISTORY_FILE = LOG_DIR / "ticket_history.csv"
 AUDIT_LOG_FILE = LOG_DIR / "audit_log.csv"
+EMAIL_LOG_FILE = LOG_DIR / "email_log.csv"
 TRANSACTIONS_FILE = DATA_DIR / "transactions.csv"
 
 # QA reviewer on/off (on by default).

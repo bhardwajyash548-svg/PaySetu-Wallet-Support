@@ -5,7 +5,7 @@ import re
 
 from google.adk.tools import ToolContext
 
-from . import config, rag, ticket_manager
+from . import config, emailer, rag, storage, ticket_manager
 
 MAX_LOOKUPS_PER_CHAT = 5  # stops someone guessing many ID/phone combinations
 
@@ -99,6 +99,10 @@ def get_transaction_status(txn_id: str, phone_last4: str, tool_context: ToolCont
             for row in csv.DictReader(f):
                 if row["txn_id"].strip().upper() == txn and row["phone_last4"].strip() == last4:
                     status = row["status"].strip()
+                    # Remember the verification for this chat only (needed to email the PDF later).
+                    verified = dict(tool_context.state.get("verified_txns", {}))
+                    verified[txn] = last4
+                    tool_context.state["verified_txns"] = verified
                     return {
                         "status": "found",
                         "transaction": {
@@ -115,3 +119,62 @@ def get_transaction_status(txn_id: str, phone_last4: str, tool_context: ToolCont
         logging.error("Transaction lookup failed: %s", exc)
         return {"status": "error", "message": "Transaction lookup is unavailable right now."}
     return {"status": "not found"}
+
+
+MAX_EMAILS_PER_CHAT = 3
+
+
+def send_receipt_email(txn_id: str, email: str, tool_context: ToolContext) -> dict:
+    """Email the PDF for ONE transaction to the customer.
+
+    Only works for a transaction verified earlier in THIS chat (ID + phone last 4), and only to an
+    email address the customer typed in this chat. Success gets a payment receipt; any other status
+    gets a transaction status statement.
+
+    Args:
+        txn_id: The verified transaction ID, e.g. "PS9995683007".
+        email: The email address the customer gave, e.g. "name@gmail.com".
+
+    Returns:
+        {"status": "sent", "to": masked address, "document": ...} or another status with a message.
+    """
+    from .receipt_generator import ReceiptError, make_pdf
+
+    session_id = getattr(getattr(tool_context, "session", None), "id", "") or ""
+    txn = re.sub(r"\s", "", str(txn_id or "")).upper()
+    phone = tool_context.state.get("verified_txns", {}).get(txn)
+
+    def done(status: str, message: str, address: str = "", **extra) -> dict:
+        storage.log_email(session_id, txn, emailer.mask_email(address), status)
+        return {"status": status, "message": message, **extra}
+
+    if not phone:
+        return done("not_verified", "This transaction has not been verified in this chat. Ask for the "
+                    "transaction ID and the last 4 digits of the registered phone number first.")
+    to = emailer.clean_email(email)
+    if not to:
+        return done("invalid_email", "That does not look like a valid email address. Ask the customer to "
+                    "type it again.", email or "")
+    sent = int(tool_context.state.get("emails_sent", 0))
+    if sent >= MAX_EMAILS_PER_CHAT:
+        return done("limit_reached", "The email limit for this chat has been reached.", to)
+    if not emailer.is_configured():
+        return done("email_not_configured", "Email sending is not set up on this server, so the PDF cannot be "
+                    "emailed right now. The customer can use the download button instead.", to)
+    try:
+        pdf, filename = make_pdf(txn, phone)  # re-verifies ID + phone against the records
+        row = next(r for r in _rows() if r["txn_id"] == txn)
+        title = "Payment Receipt" if row["status"] == "Success" else "Transaction Status Statement"
+        emailer.send_document(to, pdf, filename, row, title)
+    except ReceiptError:
+        return done("not_verified", "This transaction could not be verified.", to)
+    except Exception as exc:
+        logging.warning("Receipt email failed: %s", type(exc).__name__)
+        return done("send_failed", "The email could not be sent right now. Please try again later.", to)
+    tool_context.state["emails_sent"] = sent + 1
+    return done("sent", f"{title} emailed.", to, to=emailer.mask_email(to), document=title)
+
+
+def _rows() -> list[dict]:
+    with config.TRANSACTIONS_FILE.open(newline="", encoding="utf-8") as f:
+        return [{k: v.strip() for k, v in r.items()} for r in csv.DictReader(f)]

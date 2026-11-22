@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from . import rag
 from .config import CHAT_MODEL, FALLBACK_MODEL, retry_options
 from .prompts import QA_INSTRUCTION, SETU_INSTRUCTION
-from .tools import create_ticket, get_transaction_status, search_help_docs
+from .tools import create_ticket, get_transaction_status, search_help_docs, send_receipt_email
 
 # Build the help-docs index at startup if index/ is missing (e.g. a fresh Streamlit Cloud deploy).
 try:
@@ -32,7 +32,7 @@ def make_setu(model: str, name: str = "setu") -> Agent:
         model=model,
         description="PaySetu Wallet customer support agent.",
         instruction=SETU_INSTRUCTION,
-        tools=[search_help_docs, create_ticket, get_transaction_status],
+        tools=[search_help_docs, create_ticket, get_transaction_status, send_receipt_email],
         generate_content_config=_config(0.2),  # low = consistent, factual replies
     )
 

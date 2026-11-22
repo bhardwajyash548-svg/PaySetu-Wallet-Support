@@ -52,6 +52,14 @@ TICKET_REASONS = [
 HIGH_PRIORITY_REASONS = {"Fraud or hacked account", "Unknown transaction"}
 
 
+def _clean_text(text: str) -> str:
+    """Remove PINs/OTPs/card/account numbers and mask phone numbers (defence in depth: the AI
+    only ever sees redacted text, but its ticket message is cleaned again here)."""
+    from .conversation_summary import sanitize
+
+    return sanitize((text or "").strip())
+
+
 def normalise_reason(reason: str) -> str:
     text = (reason or "").strip().lower()
     for r in TICKET_REASONS:
@@ -145,7 +153,7 @@ def create_ticket(message: str, reason: str, priority: str, session_id: str = ""
         ticket = {
             "ticket_id": f"TKT-{max(numbers, default=1000) + 1}",
             "time": ts,
-            "customer_message": (message or "").strip()[:500],
+            "customer_message": _clean_text(message)[:500],
             "reason": reason,
             "priority": priority,
             "status": "open",
