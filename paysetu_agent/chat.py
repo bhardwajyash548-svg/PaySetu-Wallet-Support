@@ -26,29 +26,7 @@ from .safety import CONTEXT_TAG, redact, strip_fake_context
 
 APP_NAME = "paysetu_support"
 USER_ID = "customer"
-BUSY_REPLY = (
-    "Sorry, I'm having trouble responding right now because our service is busy. "
-    "Please try again in a minute."
-)
-
-
-OUTCOMES = ["Answered from help docs", "Ticket created", "Not in help docs",
-            "Off-topic declined", "Service busy", "Other"]
-
-
-def classify_outcome(reply: str, source: str, tickets: list[str]) -> str:
-    """How a reply ended - used by analytics (AI resolution rate etc.)."""
-    if reply.startswith(BUSY_REPLY) or reply.startswith("माफ़ कीजिए, अभी हमारी सेवा व्यस्त"):
-        return "Ticket created" if tickets else "Service busy"
-    if tickets:
-        return "Ticket created"
-    if source and source != "none":
-        return "Answered from help docs"
-    if NO_INFO_REPLY.split(".")[0] in reply:
-        return "Not in help docs"
-    if "only help with PaySetu" in reply:
-        return "Off-topic declined"
-    return "Other"
+from .outcomes import BUSY_REPLY, BUSY_REPLY_HI, OUTCOMES, classify_outcome  # noqa: E402,F401
 
 
 _qa_runner = None
@@ -208,7 +186,6 @@ def _localised(message: str, english: str, hindi: str) -> str:
     return hindi if _DEVANAGARI.search(message) else english
 
 
-BUSY_REPLY_HI = "माफ़ कीजिए, अभी हमारी सेवा व्यस्त है इसलिए मैं जवाब नहीं दे पा रहा हूँ। कृपया एक मिनट बाद फिर कोशिश करें।"
 FRAUD_STEPS_EN = ("For your safety, please tap Block account in Settings right away and call the "
                   "cybercrime helpline 1930.")
 FRAUD_STEPS_HI = "आपकी सुरक्षा के लिए, तुरंत Settings में Block account पर टैप करें और साइबर क्राइम हेल्पलाइन 1930 पर कॉल करें।"

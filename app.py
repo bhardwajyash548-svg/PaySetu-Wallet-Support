@@ -19,6 +19,7 @@ nav = st.navigation({
     ],
     "Admin": [
         st.Page("views/admin_tickets.py", title="Ticket management", icon="🎫"),
+        st.Page("views/admin_analytics.py", title="Admin analytics", icon="📈"),
     ],
 })
 nav.run()
