@@ -21,3 +21,6 @@ tickets.csv
 chat_log.csv
 qa_log.csv
 test_runs/
+
+# Local helper tools (GitHub CLI)
+.tools/
