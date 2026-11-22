@@ -36,14 +36,17 @@ BRAND_CSS = """
 
 
 def _secret(name: str) -> str:
+    """Read a setting from Streamlit secrets (Streamlit Cloud / local secrets.toml),
+    falling back to an environment variable (Render and other hosts)."""
     try:
-        return str(st.secrets.get(name, "")).strip()
+        value = str(st.secrets.get(name, "")).strip()
     except Exception:  # no secrets.toml on this machine
-        return ""
+        value = ""
+    return value or os.environ.get(name, "").strip()
 
 
 def load_secrets() -> None:
-    """On Streamlit Cloud the API key lives in secrets; locally it comes from .env."""
+    """API key: Streamlit secrets on Streamlit Cloud, env var on Render, .env on a laptop."""
     key = _secret("GOOGLE_API_KEY")
     if key and not os.environ.get("GOOGLE_API_KEY"):
         os.environ["GOOGLE_API_KEY"] = key

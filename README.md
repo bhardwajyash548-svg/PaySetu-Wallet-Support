@@ -148,6 +148,18 @@ Notes: `tickets.csv` and logs on Streamlit Cloud reset when the app restarts (fi
 Free apps sleep when idle — open the link ~10 minutes before Show and Tell. To change the code
 later: commit, `git push`, and Streamlit redeploys automatically.
 
+## Alternative: deploy on Render (render.yaml)
+
+1. render.com → **New → Blueprint** → connect GitHub → pick `PaySetu-Wallet-Support`, branch `main`.
+2. Render reads `render.yaml` and asks for two values (kept private, not in GitHub):
+   `GOOGLE_API_KEY` = your Gemini key, `APP_PASSCODE` = a strong passcode.
+3. **Apply / Deploy.** First build takes a few minutes; the app builds its help-docs index on first start.
+4. Free Render services sleep when idle (first visit after a nap takes ~1 minute) and reset
+   `tickets.csv` / logs on restart — fine for a demo.
+
+The app reads `APP_PASSCODE` and `GOOGLE_API_KEY` from Streamlit secrets first, then from
+environment variables, so the same code works on Streamlit Cloud, Render and your laptop.
+
 ## Troubleshooting
 
 | Problem | Fix |
