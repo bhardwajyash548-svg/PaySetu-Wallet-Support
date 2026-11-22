@@ -47,8 +47,6 @@ def load_engine():
 
 def render_journey(m: dict, idx: int) -> None:
     """Payment journey card + PDF download for a transaction verified in THIS chat."""
-    from paysetu_agent.receipt_generator import ReceiptError, make_pdf
-
     j = m.get("journey")
     if not j:
         return
@@ -64,24 +62,12 @@ def render_journey(m: dict, idx: int) -> None:
         f'<div class="note">Shows only PaySetu records and policy (Source: {e(j["source"])}). '
         f'No live bank updates are shown.</div></div>', unsafe_allow_html=True)
 
-    from paysetu_agent import emailer
-
     cols = st.columns(2)
-    r = m.get("receipt") or {}
     doc = "receipt" if j["facts"]["status"] == "Success" else "status statement"
-    if emailer.is_configured():
-        # Setu emails the PDF: it asks for the address, then calls send_receipt_email.
-        if cols[0].button(f"📧 Email me this {doc}", key=f"mail{idx}", use_container_width=True):
-            st.session_state.pending_prompt = f"Please email the {doc} for transaction {j['txn_id']} to me."
-            st.rerun()
-    else:
-        # Fallback when email is not set up on this server, so the demo always works.
-        try:
-            data, name = make_pdf(r.get("txn_id", ""), r.get("phone_last4", ""))  # re-verifies both values
-            cols[0].download_button(f"⬇ Download {doc} (PDF)", data=data, file_name=name, mime="application/pdf",
-                                    key=f"pdf{idx}", use_container_width=True)
-        except ReceiptError:
-            cols[0].caption("Document unavailable: transaction not verified.")
+    # Setu handles it: asks for the email address, then confirms the PDF will be sent there.
+    if cols[0].button(f"📧 Email me this {doc}", key=f"mail{idx}", use_container_width=True):
+        st.session_state.pending_prompt = f"Please email the {doc} for transaction {j['txn_id']} to me."
+        st.rerun()
     if j["needs_ticket"] and not m.get("ticketed"):
         if cols[1].button("Raise a ticket for this payment", key=f"tkt{idx}", use_container_width=True):
             st.session_state.pending_prompt = f"Please raise a ticket for transaction {j['txn_id']}."

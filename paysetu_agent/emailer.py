@@ -1,4 +1,10 @@
-"""Email the PDF receipt / status statement to the customer (Gmail SMTP).
+"""Email the PDF receipt / status statement to the customer.
+
+DEFAULT IS DEMO MODE: no real email is ever sent. Setu checks the transaction and the address and
+tells the customer the PDF will be sent to their (masked) address. Real sending only happens if
+EMAIL_MODE=send is set on purpose AND the Gmail settings below exist.
+
+Optional real sending (Gmail SMTP):
 
 Setup (one time): use a Gmail account for sending, turn on 2-Step Verification, create an
 "App Password" (Google Account > Security > App passwords) and put these in secrets / env:
@@ -25,6 +31,11 @@ def settings() -> dict:
         "password": os.getenv("SMTP_APP_PASSWORD", "").replace(" ", "").strip(),
         "from_name": os.getenv("SMTP_FROM_NAME", "PaySetu Wallet (demo)").strip(),
     }
+
+
+def real_sending_enabled() -> bool:
+    """True only when someone deliberately turned real email on (EMAIL_MODE=send)."""
+    return os.getenv("EMAIL_MODE", "demo").strip().lower() == "send"
 
 
 def is_configured() -> bool:

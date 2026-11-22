@@ -1,4 +1,5 @@
-"""Emailing the PDF: only verified transactions, only real addresses, fake mail server (nothing really sent)."""
+"""Emailing the PDF. Default is DEMO mode (message only, nothing sent). The real-sending path
+(EMAIL_MODE=send) is tested with a fake mail server, so no real email is ever sent by these tests."""
 import pytest
 
 from paysetu_agent import config, emailer, storage, tools
@@ -26,6 +27,7 @@ class FakeSMTP:
 @pytest.fixture
 def mail(monkeypatch, tmp_logs):
     FakeSMTP.sent = []
+    monkeypatch.setenv("EMAIL_MODE", "send")   # these tests cover the optional real-sending path
     monkeypatch.setenv("SMTP_USER", "sender@gmail.com")
     monkeypatch.setenv("SMTP_APP_PASSWORD", "abcd abcd abcd abcd")   # Google shows it with spaces
     monkeypatch.setattr(emailer.smtplib, "SMTP_SSL", FakeSMTP)
@@ -85,6 +87,7 @@ def test_limit_three_emails_per_chat(mail, tool_ctx):
 
 
 def test_not_configured_is_safe(tool_ctx, tmp_logs, monkeypatch):
+    monkeypatch.setenv("EMAIL_MODE", "send")
     monkeypatch.delenv("SMTP_USER", raising=False)
     monkeypatch.delenv("SMTP_APP_PASSWORD", raising=False)
     monkeypatch.setattr(config, "EMAIL_LOG_FILE", tmp_logs / "email_log.csv")
@@ -114,3 +117,47 @@ def test_chat_log_and_summary_mask_emails(tmp_logs):
     row = storage.read_rows(config.CHAT_LOG_FILE)[0]
     assert "yash.customer" not in row["message"] + row["reply"] and "y***@gmail.com" in row["message"]
     assert sanitize("email yash.customer@gmail.com") == "email y***@gmail.com"
+
+
+
+# ---------- default demo mode: message only, never a real email ----------
+@pytest.fixture
+def demo(monkeypatch, tmp_logs):
+    FakeSMTP.sent = []
+    monkeypatch.delenv("EMAIL_MODE", raising=False)
+    monkeypatch.setenv("SMTP_USER", "sender@gmail.com")          # even WITH Gmail settings present...
+    monkeypatch.setenv("SMTP_APP_PASSWORD", "abcdabcdabcdabcd")
+    monkeypatch.setattr(emailer.smtplib, "SMTP_SSL", FakeSMTP)
+    monkeypatch.setattr(config, "EMAIL_LOG_FILE", tmp_logs / "email_log.csv")
+    return FakeSMTP
+
+
+def test_demo_mode_only_shows_message_and_sends_nothing(demo, tool_ctx):
+    verify(tool_ctx)
+    r = tools.send_receipt_email("PS9995683007", "yash.customer@gmail.com", tool_ctx)
+    assert r["status"] == "will_be_sent" and r["to"] == "y***@gmail.com" and r["document"] == "Payment Receipt"
+    assert demo.sent == []                                          # ...nothing is sent
+    assert storage.read_rows(config.EMAIL_LOG_FILE)[-1]["status"] == "will_be_sent"
+
+
+def test_demo_mode_keeps_all_safety_checks(demo, tool_ctx):
+    assert tools.send_receipt_email("PS9995683007", "a@gmail.com", tool_ctx)["status"] == "not_verified"
+    verify(tool_ctx)
+    assert tools.send_receipt_email("PS9995683007", "bad-address", tool_ctx)["status"] == "invalid_email"
+    for _ in range(3):
+        tools.send_receipt_email("PS9995683007", "a@gmail.com", tool_ctx)
+    assert tools.send_receipt_email("PS9995683007", "a@gmail.com", tool_ctx)["status"] == "limit_reached"
+    assert demo.sent == []
+
+
+def test_demo_mode_names_statement_for_failed_payment(demo, tool_ctx):
+    verify(tool_ctx, "PS6543961946", "3067")
+    r = tools.send_receipt_email("PS6543961946", "a@gmail.com", tool_ctx)
+    assert r["status"] == "will_be_sent" and r["document"] == "Transaction Status Statement"
+
+
+def test_real_sending_is_off_unless_explicitly_enabled(monkeypatch):
+    monkeypatch.delenv("EMAIL_MODE", raising=False)
+    assert emailer.real_sending_enabled() is False
+    monkeypatch.setenv("EMAIL_MODE", "Send")
+    assert emailer.real_sending_enabled() is True

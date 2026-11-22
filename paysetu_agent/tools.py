@@ -158,9 +158,16 @@ def send_receipt_email(txn_id: str, email: str, tool_context: ToolContext) -> di
     sent = int(tool_context.state.get("emails_sent", 0))
     if sent >= MAX_EMAILS_PER_CHAT:
         return done("limit_reached", "The email limit for this chat has been reached.", to)
+    title = "Payment Receipt" if next(r for r in _rows() if r["txn_id"] == txn)["status"] == "Success" \
+        else "Transaction Status Statement"
+    if not emailer.real_sending_enabled():
+        # Demo mode (default): no real email is sent; the customer is told the PDF will be sent.
+        tool_context.state["emails_sent"] = sent + 1
+        return done("will_be_sent", f"{title} will be sent to the customer's email.", to,
+                    to=emailer.mask_email(to), document=title)
     if not emailer.is_configured():
         return done("email_not_configured", "Email sending is not set up on this server, so the PDF cannot be "
-                    "emailed right now. The customer can use the download button instead.", to)
+                    "emailed right now.", to)
     try:
         pdf, filename = make_pdf(txn, phone)  # re-verifies ID + phone against the records
         row = next(r for r in _rows() if r["txn_id"] == txn)
