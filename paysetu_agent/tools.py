@@ -107,6 +107,7 @@ def get_transaction_status(txn_id: str, phone_last4: str, tool_context: ToolCont
                             "amount_inr": row["amount_inr"],
                             "date": row["date"],
                             "status": status,
+                            "phone_last4": last4,  # what the customer typed; needed to re-verify for a PDF
                         },
                         "needs_action": status in ("Failed", "Pending"),
                     }

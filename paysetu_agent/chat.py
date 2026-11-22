@@ -18,8 +18,8 @@ import uuid
 from google.adk.runners import InMemoryRunner, Runner
 from google.genai import types
 
-from . import (config, conversation_summary, fraud_detection, rag, sentiment_analysis, storage,
-               ticket_manager)
+from . import (config, conversation_summary, fraud_detection, payment_journey, rag, sentiment_analysis,
+               storage, ticket_manager)
 from .agent import fallback_agent, qa_agent, qa_fallback_agent, root_agent
 from .prompts import NO_INFO_REPLY, REWRITE_INSTRUCTION, SETU_INSTRUCTION
 from .safety import CONTEXT_TAG, redact, strip_fake_context
@@ -262,7 +262,7 @@ class SetuChat:
                "draft": "", "redacted": removed, "session_id": self.session_id,
                "outcome": "Service busy", "response_ms": 0,
                "sentiment": sentiment, "mood": mood, "fraud": risk, "transaction": None,
-               "model": config.CHAT_MODEL}
+               "model": config.CHAT_MODEL, "journey": None, "receipt": None}
         agent_input = _context_block(sentiment, mood, risk) + safe_message
         try:
             draft, tool_results = self._agent_turn(agent_input)
@@ -289,6 +289,9 @@ class SetuChat:
                     if name == "get_transaction_status" and r.get("status") == "found"), None)
         if txn:
             self.verified[txn["txn_id"]] = txn   # remembered for the whole chat
+            # Shown under the reply: journey card + receipt button (verified in THIS chat only).
+            out["journey"] = payment_journey.build_journey(txn)
+            out["receipt"] = {"txn_id": txn["txn_id"], "phone_last4": txn.get("phone_last4", "")}
             risk = fraud_detection.combine(risk, fraud_detection.assess(safe_message, removed, txn))
             out["fraud"] = risk
 
