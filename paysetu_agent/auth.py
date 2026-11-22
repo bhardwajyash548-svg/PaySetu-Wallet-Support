@@ -132,3 +132,17 @@ def find_setting(name: str, environ: dict, streamlit_secrets: dict | None = None
 def similar_setting_names(environ: dict) -> list[str]:
     """Names (never values) of environment variables that look like passcodes - for error messages."""
     return sorted(k for k in environ if re.search(r"ADMIN|PASS|CODE", k.upper()))
+
+
+def derived_admin_passcode(api_key: str) -> str:
+    """Fallback admin passcode when ADMIN_PASSCODE is not configured on the host.
+
+    Made one-way from the server's secret Gemini key, so only someone who has that key (the owner)
+    can work it out; customers cannot, and the key cannot be recovered from it. Returns "" without a key.
+    """
+    import hashlib
+
+    key = (api_key or "").strip()
+    if not key:
+        return ""
+    return "admin-" + hashlib.sha256(("paysetu-admin:" + key).encode()).hexdigest()[:10]

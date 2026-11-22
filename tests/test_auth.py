@@ -139,3 +139,23 @@ def test_render_secret_files(tmp_path):
 def test_error_hint_shows_names_never_values():
     names = similar_setting_names({"ADMIN_PASSWORD": "topsecret", "APP_PASSCODE": "x", "PATH": "/bin"})
     assert names == ["ADMIN_PASSWORD", "APP_PASSCODE"] and "topsecret" not in str(names)
+
+
+# ---------- fallback admin passcode (ADMIN_PASSCODE not set on the host) ----------
+from paysetu_agent.auth import derived_admin_passcode  # noqa: E402
+
+
+def test_derived_admin_passcode_is_stable_private_and_one_way():
+    a = derived_admin_passcode("AIzaSy-example-key-123")
+    assert a == derived_admin_passcode("AIzaSy-example-key-123")       # same key -> same code
+    assert a != derived_admin_passcode("AIzaSy-other-key-456")         # different key -> different code
+    assert a.startswith("admin-") and len(a) == 16
+    assert "example" not in a and "AIza" not in a                       # key cannot be read from it
+    assert derived_admin_passcode("") == "" and derived_admin_passcode("  ") == ""   # no key -> stays locked
+
+
+def test_admin_gate_uses_fallback_only_when_passcode_missing():
+    src = (ROOT / "ui_shared.py").read_text()
+    gate = src[src.index("def require_admin"):]
+    assert gate.index('expected = _secret("ADMIN_PASSCODE")') < gate.index("derived_admin_passcode(")
+    assert "if not expected:" in gate[:gate.index("derived_admin_passcode(")]

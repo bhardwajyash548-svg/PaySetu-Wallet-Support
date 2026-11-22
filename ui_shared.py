@@ -194,6 +194,14 @@ def require_admin() -> str:
     if st.session_state.pop("admin_timed_out", False):
         st.info("You were signed out after 30 minutes without activity. Please sign in again.")
     expected = _secret("ADMIN_PASSCODE")
+    derived = False
+    if not expected:
+        # ADMIN_PASSCODE not set on this host: use a passcode made one-way from the server's secret
+        # Gemini key (only the owner can work it out; see show_admin_code.py).
+        from paysetu_agent.auth import derived_admin_passcode
+
+        expected = derived_admin_passcode(os.environ.get("GOOGLE_API_KEY", ""))
+        derived = bool(expected)
     if expected and expected.strip() == _secret("APP_PASSCODE").strip():
         st.error("ADMIN_PASSCODE must be different from APP_PASSCODE, otherwise every customer could open the "
                  "admin pages. Change it in secrets / environment settings.")
@@ -212,6 +220,8 @@ def require_admin() -> str:
     if guard.is_locked():
         _locked_message(guard)
         st.stop()
+    if derived:
+        st.caption("Admin passcode: the owner's code from show_admin_code.py (ADMIN_PASSCODE is not set on this server).")
     with st.form("admin_form"):
         name = st.text_input("Your name (for the audit log)", max_chars=30)
         entered = st.text_input("Admin passcode", type="password")
