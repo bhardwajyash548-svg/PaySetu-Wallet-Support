@@ -294,10 +294,12 @@ box = card("Recent tickets")
 if len(tickets):
     if "category" not in tickets.columns:
         tickets["category"] = ""
-    show = tickets.iloc[::-1].head(20)[["ticket_id", "time", "priority", "category", "reason", "customer_message",
-                                        "status"]]
+    # No customer text here: full ticket details are on the admin-only Ticket management page.
+    show = tickets.iloc[::-1].head(20)[["ticket_id", "time", "priority", "category", "reason", "status"]].copy()
+    show["status"] = show["status"].map(lambda v: ticket_manager.STATUS_LABELS.get(v, v))
     box.dataframe(show, hide_index=True, use_container_width=True, column_config={
         "ticket_id": "Ticket", "time": "Time", "priority": "Priority", "category": "Category", "reason": "Reason",
-        "customer_message": st.column_config.TextColumn("Summary", width="large"), "status": "Status"})
+        "status": "Status"})
+    box.caption("Ticket details and summaries are on the admin Ticket management page.")
 else:
     box.markdown('<div class="ps-empty">No tickets yet.</div>', unsafe_allow_html=True)

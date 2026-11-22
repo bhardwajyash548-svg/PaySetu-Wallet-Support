@@ -1,7 +1,7 @@
 """PaySetu Wallet Support - Streamlit web app.
 
 Run locally:  .venv/bin/streamlit run app.py
-Both pages (Chat and Dashboard) sit behind the same passcode (APP_PASSCODE in Streamlit secrets).
+Every page sits behind APP_PASSCODE. Admin pages additionally need ADMIN_PASSCODE.
 """
 import streamlit as st
 
@@ -12,8 +12,13 @@ load_secrets()  # must run before the agent is imported (it needs GOOGLE_API_KEY
 apply_style()
 require_passcode()  # stops here until the right passcode is entered
 
-nav = st.navigation([
-    st.Page("views/chat.py", title="Chat with Setu", icon="💬", default=True),
-    st.Page("views/dashboard.py", title="Dashboard", icon="📊"),
-])
+nav = st.navigation({
+    "Support": [
+        st.Page("views/chat.py", title="Chat with Setu", icon="💬", default=True),
+        st.Page("views/dashboard.py", title="Dashboard", icon="📊"),
+    ],
+    "Admin": [
+        st.Page("views/admin_tickets.py", title="Ticket management", icon="🎫"),
+    ],
+})
 nav.run()

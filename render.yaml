@@ -1,5 +1,5 @@
 # Render Blueprint for PaySetu Wallet Support (Streamlit app).
-# Secrets are NOT stored here: Render asks for GOOGLE_API_KEY and APP_PASSCODE
+# Secrets are NOT stored here: Render asks for GOOGLE_API_KEY, APP_PASSCODE and ADMIN_PASSCODE
 # when you create the Blueprint (sync: false), and keeps them private.
 services:
   - type: web
@@ -17,4 +17,6 @@ services:
       - key: GOOGLE_API_KEY
         sync: false
       - key: APP_PASSCODE
+        sync: false
+      - key: ADMIN_PASSCODE
         sync: false

@@ -1,6 +1,6 @@
 """Shared Streamlit helpers: secrets, passcode gate, styling and the tickets sidebar."""
-import hmac
 import os
+import time
 
 import streamlit as st
 
@@ -114,8 +114,21 @@ def hero(title: str, subtitle: str) -> None:
     )
 
 
+def _guard(key: str):
+    from paysetu_agent.auth import LoginGuard
+
+    if key not in st.session_state:
+        st.session_state[key] = LoginGuard()
+    return st.session_state[key]
+
+
+def _locked_message(guard) -> None:
+    mins, secs = divmod(guard.seconds_left(), 60)
+    st.error(f"Too many wrong passcodes. Locked for {mins} min {secs:02d} s. Please try again later.")
+
+
 def require_passcode() -> None:
-    """Stop the page until the right APP_PASSCODE is entered."""
+    """Stop the page until the right APP_PASSCODE is entered (5 wrong tries = 5-minute lock)."""
     if st.session_state.get("unlocked"):
         return
     expected = _secret("APP_PASSCODE")
@@ -123,14 +136,71 @@ def require_passcode() -> None:
     if not expected:
         st.error("APP_PASSCODE is not set. Add it to .streamlit/secrets.toml (laptop) or the app's Secrets (cloud).")
         st.stop()
+    guard = _guard("app_guard")
+    if guard.is_locked():
+        _locked_message(guard)
+        st.stop()
     with st.form("passcode_form"):
         entered = st.text_input("Enter passcode to continue", type="password")
         submitted = st.form_submit_button("Unlock", type="primary")
     if submitted:
-        if hmac.compare_digest(entered.strip(), expected):
+        result = guard.attempt(entered, expected)
+        if result == "ok":
             st.session_state.unlocked = True
             st.rerun()
-        st.error("Wrong passcode. The chat stays locked.")
+        time.sleep(1)  # slows down guessing
+        if result == "locked":
+            _locked_message(guard)
+        else:
+            st.error(f"Wrong passcode. The chat stays locked. ({guard.tries_left()} tries left)")
+    st.stop()
+
+
+def require_admin() -> str:
+    """Stop the page until an admin signs in with ADMIN_PASSCODE. Returns the admin's audit name."""
+    from paysetu_agent import ticket_manager
+    from paysetu_agent.auth import admin_actor, clean_admin_name
+
+    if st.session_state.get("admin_ok"):
+        with st.sidebar:
+            st.caption(f"Signed in as {st.session_state.admin_name} (admin)")
+            if st.button("Sign out of admin", use_container_width=True):
+                ticket_manager.audit(admin_actor(st.session_state), "admin_sign_out", "-")
+                st.session_state.admin_ok = False
+                st.rerun()
+        return admin_actor(st.session_state)
+
+    hero("Admin sign-in", "Ticket management and analytics are for PaySetu support staff only")
+    expected = _secret("ADMIN_PASSCODE")
+    if not expected:
+        st.error("ADMIN_PASSCODE is not set. Add it to .streamlit/secrets.toml (laptop) or the app's "
+                 "Secrets / environment (cloud). Admin pages stay locked until then.")
+        st.stop()
+    guard = _guard("admin_guard")
+    if guard.is_locked():
+        _locked_message(guard)
+        st.stop()
+    with st.form("admin_form"):
+        name = st.text_input("Your name (for the audit log)", max_chars=30)
+        entered = st.text_input("Admin passcode", type="password")
+        submitted = st.form_submit_button("Sign in as admin", type="primary")
+    if submitted:
+        clean = clean_admin_name(name)
+        if not clean:
+            st.error("Please enter your name. It is recorded with every admin action.")
+            st.stop()
+        result = guard.attempt(entered, expected)
+        if result == "ok":
+            st.session_state.admin_ok, st.session_state.admin_name = True, clean
+            ticket_manager.audit(f"{clean} (admin)", "admin_sign_in", "-", "success")
+            st.rerun()
+        ticket_manager.audit(f"{clean} (unverified)", "admin_sign_in_failed", "-",
+                             "locked for 5 minutes" if result == "locked" else "wrong passcode")
+        time.sleep(1)
+        if result == "locked":
+            _locked_message(guard)
+        else:
+            st.error(f"Wrong admin passcode. ({guard.tries_left()} tries left)")
     st.stop()
 
 
