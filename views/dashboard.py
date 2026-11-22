@@ -15,13 +15,6 @@ INK, INK_2, GRID = "#0B2540", "#52606D", "#E6EDF3"
 
 DASH_CSS = """
 <style>
-/* Page background: soft blue-teal glow */
-[data-testid="stAppViewContainer"] {
-  background:
-    radial-gradient(1100px 500px at 10% -10%, rgba(21,84,166,.13), transparent 60%),
-    radial-gradient(900px 500px at 100% 0%, rgba(14,140,140,.14), transparent 60%),
-    linear-gradient(180deg, #F3F7FB 0%, #EEF4F8 100%);
-}
 .block-container { max-width: 1180px !important; }
 /* White cards around each chart (the bordered block that directly holds a card title) */
 [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"] .ps-card-title) {

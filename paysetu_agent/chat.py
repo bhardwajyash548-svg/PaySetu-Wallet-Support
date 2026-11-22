@@ -63,6 +63,17 @@ def _source_of(reply: str) -> str:
     return "; ".join(s.strip() for s in found) if found else "none"
 
 
+_DEVANAGARI = re.compile(r"[\u0900-\u097F]")
+
+
+def _script_mismatch(message: str, reply: str) -> str:
+    """Hinglish/English in Roman letters must never get a Devanagari reply."""
+    if not _DEVANAGARI.search(message) and _DEVANAGARI.search(reply):
+        return ("The customer wrote in Roman letters (Hinglish/English) but the draft uses Devanagari. "
+                "Rewrite in Roman letters only: simple Hinglish if the customer used Hindi words, else English.")
+    return ""
+
+
 # ---------- QA reviewer ----------
 def _review(message: str, draft: str, chunks: list[dict], tools: list[dict]) -> tuple[str, str]:
     global _qa_runner
@@ -133,10 +144,14 @@ class SetuChat:
 
         reply = draft
         if self.qa and draft != BUSY_REPLY:
-            try:
-                result, reason = _review(safe_message, draft, chunks, tools)
-            except Exception as exc:
-                result, reason = "SKIPPED", f"Reviewer unavailable: {exc}"[:200]
+            script_problem = _script_mismatch(safe_message, draft)
+            if script_problem:  # deterministic check, no AI call needed
+                result, reason = "FAIL", script_problem
+            else:
+                try:
+                    result, reason = _review(safe_message, draft, chunks, tools)
+                except Exception as exc:
+                    result, reason = "SKIPPED", f"Reviewer unavailable: {exc}"[:200]
             storage.log_qa(safe_message, draft, result, reason)
             out["qa_result"], out["qa_reason"] = result, reason
             if result == "FAIL":

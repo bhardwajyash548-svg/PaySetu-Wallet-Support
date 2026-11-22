@@ -20,8 +20,8 @@ BRAND_CSS = """
   border: 1px solid var(--ps-line); background: #fff; }
 [data-testid="stChatMessage"]:has([aria-label="Chat message from user"]) {
   flex-direction: row-reverse; text-align: right; background: var(--ps-mint); border-color: #BFE6E1;
-  margin-left: 12%; }
-[data-testid="stChatMessage"]:not(:has([aria-label="Chat message from user"])) { margin-right: 12%; }
+  margin-left: auto; max-width: 88%; width: fit-content; box-sizing: border-box; }
+[data-testid="stChatMessage"]:not(:has([aria-label="Chat message from user"])) { max-width: 88%; box-sizing: border-box; }
 /* Ticket cards in sidebar */
 .ps-ticket { border:1px solid var(--ps-line); border-radius:12px; padding:8px 10px; margin-bottom:8px; background:#fff; }
 .ps-ticket .id { font-weight:700; color: var(--ps-navy); }
@@ -31,6 +31,57 @@ BRAND_CSS = """
 .ps-ticket .reason { font-size:.8rem; color:#475467; margin-top:2px; }
 [data-testid="stChatMessage"]:has([aria-label="Chat message from user"]) [data-testid="stChatMessageContent"] { text-align:right; }
 .ps-qa { font-size:.72rem; color:#0E8C8C; }
+
+/* ---------- App wallpaper (all pages) ---------- */
+[data-testid="stAppViewContainer"] {
+  background-color: #F2F6FB;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1440' height='420' viewBox='0 0 1440 420' preserveAspectRatio='none'%3E%3Cg fill='none' stroke-width='2'%3E%3Cpath stroke='%231554A6' stroke-opacity='.16' d='M0 170 C 260 70 520 270 780 170 S 1200 60 1440 150'/%3E%3Cpath stroke='%230E8C8C' stroke-opacity='.16' d='M0 230 C 300 130 560 330 840 220 S 1240 120 1440 210'/%3E%3Cpath stroke='%231554A6' stroke-opacity='.10' d='M0 290 C 320 200 600 380 900 280 S 1260 190 1440 270'/%3E%3C/g%3E%3C/svg%3E"),
+    radial-gradient(rgba(11,37,64,.07) 1px, transparent 1.2px),
+    radial-gradient(900px 480px at 8% -8%, rgba(21,84,166,.16), transparent 62%),
+    radial-gradient(820px 520px at 100% 4%, rgba(14,140,140,.16), transparent 60%),
+    radial-gradient(700px 420px at 60% 110%, rgba(21,84,166,.08), transparent 60%),
+    linear-gradient(180deg, #F5F9FD 0%, #EDF3F8 100%);
+  background-size: 100% 420px, 22px 22px, auto, auto, auto, auto;
+  background-repeat: no-repeat, repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+  background-attachment: fixed;
+}
+[data-testid="stHeader"] { background: transparent; }
+
+/* Hero banner: add a soft light sweep */
+.ps-hero { position: relative; overflow: hidden; }
+.ps-hero::after { content: ""; position: absolute; right: -60px; top: -80px; width: 260px; height: 260px;
+  border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.22), transparent 65%); }
+
+/* ---------- Sidebar: deep navy fintech panel ---------- */
+[data-testid="stSidebar"] {
+  background: linear-gradient(185deg, #0B2540 0%, #0F355A 55%, #0E5560 100%);
+  border-right: 1px solid rgba(255,255,255,.06);
+}
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] p, [data-testid="stSidebar"] label, [data-testid="stSidebar"] span,
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] { color: #E7F0F8 !important; }
+[data-testid="stSidebarNav"] a { border-radius: 10px; }
+[data-testid="stSidebarNav"] a:hover { background: rgba(255,255,255,.08); }
+[data-testid="stSidebarNav"] a[aria-current="page"] { background: rgba(255,255,255,.14); }
+[data-testid="stSidebar"] [data-testid="stBaseButton-secondary"] {
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); color: #fff; }
+[data-testid="stSidebar"] [data-testid="stBaseButton-secondary"]:hover {
+  background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.35); }
+[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg,
+[data-testid="stSidebarCollapsedControl"] svg { color: #E7F0F8; }
+/* sidebar ticket cards keep dark text on white */
+[data-testid="stSidebar"] .ps-ticket { border-color: rgba(255,255,255,.0); box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+[data-testid="stSidebar"] .ps-ticket span.ps-badge.ps-high { color:#B42318 !important; }
+[data-testid="stSidebar"] .ps-ticket span.ps-badge.ps-normal { color:#075985 !important; }
+[data-testid="stSidebar"] .ps-ticket .id { color: var(--ps-navy) !important; }
+[data-testid="stSidebar"] .ps-ticket .reason { color:#475467 !important; }
+
+/* Login card and chat input: white, lifted */
+[data-testid="stForm"] { background: #fff; border: 1px solid #DCE6EF; border-radius: 16px;
+  box-shadow: 0 8px 26px rgba(11,37,64,.08); }
+[data-testid="stChatInput"] { box-shadow: 0 6px 20px rgba(11,37,64,.08); border-radius: 14px; }
+[data-testid="stBottom"] > div { background: transparent; }
 </style>
 """
 
