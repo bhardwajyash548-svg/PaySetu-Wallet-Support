@@ -6,20 +6,21 @@ customer message
   -> 3. QA reviewer       PASS / FAIL with a reason (logged to qa_log.csv)
   -> 4. rewrite once      only if FAIL, using the reviewer's reason
   -> 5. safety net        make sure a created ticket's ID is in the reply
-  -> 6. chat_log.csv      log message, reply and source
+  -> 6. chat_log.csv      log message, reply, source + session, outcome, response time
 """
 import asyncio
 import json
 import logging
 import re
+import time
 import uuid
 
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
-from . import config, rag, storage
+from . import config, rag, storage, ticket_manager
 from .agent import qa_agent, root_agent
-from .prompts import REWRITE_INSTRUCTION, SETU_INSTRUCTION
+from .prompts import NO_INFO_REPLY, REWRITE_INSTRUCTION, SETU_INSTRUCTION
 from .safety import redact
 
 APP_NAME = "paysetu_support"
@@ -28,6 +29,26 @@ BUSY_REPLY = (
     "Sorry, I'm having trouble responding right now because our service is busy. "
     "Please try again in a minute."
 )
+
+
+OUTCOMES = ["Answered from help docs", "Ticket created", "Not in help docs",
+            "Off-topic declined", "Service busy", "Other"]
+
+
+def classify_outcome(reply: str, source: str, tickets: list[str]) -> str:
+    """How a reply ended - used by analytics (AI resolution rate etc.)."""
+    if reply == BUSY_REPLY:
+        return "Service busy"
+    if tickets:
+        return "Ticket created"
+    if source and source != "none":
+        return "Answered from help docs"
+    if NO_INFO_REPLY.split(".")[0] in reply:
+        return "Not in help docs"
+    if "only help with PaySetu" in reply:
+        return "Off-topic declined"
+    return "Other"
+
 
 _qa_runner = None
 
@@ -125,13 +146,17 @@ class SetuChat:
 
     def respond(self, message: str) -> dict:
         """Full pipeline. Returns {reply, source, tickets, qa_result, qa_reason, draft}."""
+        started = time.perf_counter()
         safe_message, removed = redact(message)
         out = {"reply": BUSY_REPLY, "source": "none", "tickets": [], "qa_result": "", "qa_reason": "",
-               "draft": "", "redacted": removed}
+               "draft": "", "redacted": removed, "session_id": self.session_id,
+               "outcome": "Service busy", "response_ms": 0}
         try:
             draft, tool_results = _run(self.runner, self.session_id, safe_message)
         except Exception as exc:  # Gemini busy/quota errors after all retries
             logging.warning("Setu could not reply: %s", exc)
+            out["response_ms"] = int((time.perf_counter() - started) * 1000)
+            self._log(safe_message, out)
             return out
         draft = draft or BUSY_REPLY
         out["draft"] = draft
@@ -165,13 +190,28 @@ class SetuChat:
             if tid not in reply:
                 reply += f"\n\nYour ticket ID is {tid}. A person from our team will reply within 24 hours."
 
+        # Safety net: every ticket from this chat is linked to this chat's session.
+        for tid in tickets:
+            try:
+                t = ticket_manager.get_ticket(tid)
+                if t and not t.get("session_id"):
+                    ticket_manager.update_fields(tid, session_id=self.session_id)
+            except Exception as exc:
+                logging.warning("Could not link ticket %s to session: %s", tid, exc)
+
         out["reply"] = reply
         out["source"] = _source_of(reply)
+        out["outcome"] = classify_outcome(reply, out["source"], tickets)
+        out["response_ms"] = int((time.perf_counter() - started) * 1000)
+        self._log(safe_message, out)
+        return out
+
+    def _log(self, safe_message: str, out: dict) -> None:
         try:
-            storage.log_chat(safe_message, reply, out["source"])
+            storage.log_chat(safe_message, out["reply"], out["source"], session_id=self.session_id,
+                             outcome=out["outcome"], response_ms=out["response_ms"])
         except Exception as exc:
             logging.warning("Could not write chat log: %s", exc)
-        return out
 
     def ask(self, message: str) -> str:
         return self.respond(message)["reply"]

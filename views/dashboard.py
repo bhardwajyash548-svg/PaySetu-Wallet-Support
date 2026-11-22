@@ -215,7 +215,9 @@ high = int((open_t["priority"] == "high").sum())
 pass_rate = (qa["result"] == "PASS").mean() if len(qa) else None
 answered = 0
 if len(chats):
-    chats = chats.assign(outcome=chats.apply(outcome, axis=1))
+    guessed = chats.apply(outcome, axis=1)  # older rows have no logged outcome
+    logged = chats["outcome"] if "outcome" in chats.columns else pd.Series("", index=chats.index)
+    chats = chats.assign(outcome=logged.where(logged.isin(OUTCOME_ORDER), guessed))
     answered = int((chats["outcome"] == "Answered from help docs").sum())
 
 meter = f'<div class="ps-meter"><span style="width:{pass_rate * 100:.0f}%"></span></div>' if pass_rate is not None else ""

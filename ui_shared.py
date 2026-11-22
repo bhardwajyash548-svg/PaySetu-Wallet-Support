@@ -134,20 +134,22 @@ def require_passcode() -> None:
     st.stop()
 
 
-def tickets_sidebar() -> None:
-    from paysetu_agent import storage
+def tickets_sidebar(session_id: str) -> None:
+    """Open tickets from THIS chat only - customers never see other customers' tickets."""
+    import html
 
-    st.sidebar.markdown("### Open support tickets")
-    tickets = storage.open_tickets()
+    from paysetu_agent import ticket_manager
+
+    st.sidebar.markdown("### Your open tickets")
+    tickets = ticket_manager.open_tickets(session_id=session_id)
     if not tickets:
-        st.sidebar.caption("No open tickets yet.")
+        st.sidebar.caption("No open tickets in this chat.")
         return
     for t in reversed(tickets[-15:]):  # newest first
-        pr = t.get("priority", "normal")
+        pr = t.get("priority", "normal") if t.get("priority") in ("high", "normal") else "normal"
         st.sidebar.markdown(
             f'<div class="ps-ticket"><span class="ps-badge ps-{pr}">{pr.upper()}</span>'
-            f'<div class="id">{t["ticket_id"]}</div><div class="reason">{t.get("reason", "")}</div></div>',
+            f'<div class="id">{html.escape(t["ticket_id"])}</div>'
+            f'<div class="reason">{html.escape(t.get("reason", ""))}</div></div>',
             unsafe_allow_html=True,
         )
-    if len(tickets) > 15:
-        st.sidebar.caption(f"Showing 15 newest of {len(tickets)} open tickets.")

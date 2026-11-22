@@ -42,7 +42,7 @@ def main():
         if st.button("🔒 Lock", use_container_width=True):
             st.session_state.clear()
             st.rerun()
-    tickets_sidebar()
+    tickets_sidebar(st.session_state.setu.session_id)
 
     for m in st.session_state.messages:
         with st.chat_message(m["role"], avatar="🧑" if m["role"] == "user" else "💠"):

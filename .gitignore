@@ -24,3 +24,6 @@ test_runs/
 
 # Local helper tools (GitHub CLI)
 .tools/
+
+# Test cache
+.pytest_cache/

@@ -5,7 +5,7 @@ import re
 
 from google.adk.tools import ToolContext
 
-from . import config, rag, storage
+from . import config, rag, ticket_manager
 
 MAX_LOOKUPS_PER_CHAT = 5  # stops someone guessing many ID/phone combinations
 
@@ -34,7 +34,7 @@ def search_help_docs(question: str, tool_context: ToolContext) -> dict:
     return {"status": "ok", "results": chunks}
 
 
-def create_ticket(message: str, reason: str, priority: str) -> dict:
+def create_ticket(message: str, reason: str, priority: str, tool_context: ToolContext) -> dict:
     """Create a support ticket so a human representative follows up within 24 hours.
 
     Args:
@@ -50,7 +50,9 @@ def create_ticket(message: str, reason: str, priority: str) -> dict:
         A dict with the real "ticket_id" to share with the customer.
     """
     try:
-        ticket = storage.create_ticket(message, reason, priority)
+        session = getattr(tool_context, "session", None)
+        ticket = ticket_manager.create_ticket(message, reason, priority,
+                                              session_id=getattr(session, "id", "") or "")
     except Exception as exc:
         logging.error("create_ticket failed: %s", exc)
         return {"status": "error", "message": "Ticket could not be saved."}
