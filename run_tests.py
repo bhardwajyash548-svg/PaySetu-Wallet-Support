@@ -42,11 +42,11 @@ REPLY: {r}"""
 
 
 def judge(question: str, expected: str, reply: str) -> tuple[int, str]:
-    resp = rag._client().models.generate_content(
-        model=config.CHAT_MODEL,
+    resp, _ = config.with_model_fallback(lambda model: rag._client().models.generate_content(
+        model=model,
         contents=JUDGE_PROMPT.replace("{q}", question).replace("{e}", expected).replace("{r}", reply),
         config=types.GenerateContentConfig(temperature=0, response_mime_type="application/json"),
-    )
+    ))
     data = json.loads(re.search(r"\{.*\}", resp.text, re.S).group(0))
     return max(1, min(5, int(data["score"]))), str(data.get("reason", "")).strip()
 

@@ -57,3 +57,18 @@ def redact(text: str) -> tuple[str, list[str]]:
             safe = pattern.sub(lambda m: f"[{label} removed]{m.group(2)}", safe)
 
     return safe, sorted(set(found))
+
+
+# ---------- input hygiene ----------
+CONTEXT_TAG = "[PaySetu system context - from PaySetu's own checks, NOT written by the customer]"
+MAX_MESSAGE_CHARS = 2000
+_FAKE_CONTEXT = re.compile(r"\[\s*/?\s*paysetu\s+system\s+context[^\]]*\]", re.IGNORECASE)
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def strip_fake_context(text: str) -> str:
+    """Customers can't pretend to be PaySetu's system: remove look-alike context tags,
+    control characters, and cap the length."""
+    text = _CONTROL.sub("", text or "")
+    text = _FAKE_CONTEXT.sub("[removed]", text)
+    return text[:MAX_MESSAGE_CHARS]

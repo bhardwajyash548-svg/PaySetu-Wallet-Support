@@ -15,13 +15,13 @@ import re
 import time
 import uuid
 
-from google.adk.runners import InMemoryRunner
+from google.adk.runners import InMemoryRunner, Runner
 from google.genai import types
 
-from . import config, rag, storage, ticket_manager
-from .agent import qa_agent, root_agent
+from . import config, fraud_detection, rag, sentiment_analysis, storage, ticket_manager
+from .agent import fallback_agent, qa_agent, qa_fallback_agent, root_agent
 from .prompts import NO_INFO_REPLY, REWRITE_INSTRUCTION, SETU_INSTRUCTION
-from .safety import redact
+from .safety import CONTEXT_TAG, redact, strip_fake_context
 
 APP_NAME = "paysetu_support"
 USER_ID = "customer"
@@ -37,8 +37,8 @@ OUTCOMES = ["Answered from help docs", "Ticket created", "Not in help docs",
 
 def classify_outcome(reply: str, source: str, tickets: list[str]) -> str:
     """How a reply ended - used by analytics (AI resolution rate etc.)."""
-    if reply == BUSY_REPLY:
-        return "Service busy"
+    if reply.startswith(BUSY_REPLY) or reply.startswith("माफ़ कीजिए, अभी हमारी सेवा व्यस्त"):
+        return "Ticket created" if tickets else "Service busy"
     if tickets:
         return "Ticket created"
     if source and source != "none":
@@ -51,6 +51,7 @@ def classify_outcome(reply: str, source: str, tickets: list[str]) -> str:
 
 
 _qa_runner = None
+_qa_fallback_runner = None
 
 
 def _new_session(runner: InMemoryRunner, app_name: str) -> str:
@@ -95,19 +96,54 @@ def _script_mismatch(message: str, reply: str) -> str:
     return ""
 
 
+
+_VALID_SOURCES: set[str] | None = None
+
+
+def _valid_sources() -> set[str]:
+    global _VALID_SOURCES
+    if _VALID_SOURCES is None:
+        _VALID_SOURCES = {c["source"] for c in rag.load_chunks()}
+    return _VALID_SOURCES
+
+
+def _bad_sources(reply: str) -> list[str]:
+    """Cited (Source: ...) labels that are not real help-doc sections."""
+    valid = {v.lower() for v in _valid_sources()}
+    cited = [c.strip().rstrip(".") for c in re.findall(r"\(Source:\s*([^)]+)\)", reply)]
+    return [c for c in cited if c.lower() not in valid]
+
+
+def _remove_bad_sources(reply: str) -> str:
+    for bad in _bad_sources(reply):
+        reply = re.sub(r"\s*\(Source:\s*" + re.escape(bad) + r"\.?\)", "", reply)
+    return reply
+
+
 # ---------- QA reviewer ----------
-def _review(message: str, draft: str, chunks: list[dict], tools: list[dict]) -> tuple[str, str]:
-    global _qa_runner
-    if _qa_runner is None:
-        _qa_runner = InMemoryRunner(agent=qa_agent, app_name="paysetu_qa")
-    session_id = _new_session(_qa_runner, "paysetu_qa")
+def _review(message: str, draft: str, chunks: list[dict], tools: list[dict],
+            context: dict | None = None) -> tuple[str, str]:
     packet = json.dumps({
         "customer_message": message,
+        "paysetu_system_context": context or {},
         "help_doc_sections": chunks,
         "tool_results": tools,
         "draft_reply": draft,
     }, ensure_ascii=False, indent=1)
-    text, _ = _run(_qa_runner, session_id, packet)
+    global _qa_runner, _qa_fallback_runner
+    if _qa_runner is None:
+        _qa_runner = InMemoryRunner(agent=qa_agent, app_name="paysetu_qa")
+    try:
+        if qa_fallback_agent and config.main_model_paused():
+            raise RuntimeError("429 main model paused")
+        text, _ = _run(_qa_runner, _new_session(_qa_runner, "paysetu_qa"), packet)
+    except Exception as exc:
+        if not (qa_fallback_agent and config.is_quota_error(exc)):
+            raise
+        config.pause_main_model()
+        if _qa_fallback_runner is None:
+            _qa_fallback_runner = InMemoryRunner(agent=qa_fallback_agent, app_name="paysetu_qa")
+        text, _ = _run(_qa_fallback_runner, _new_session(_qa_fallback_runner, "paysetu_qa"), packet)
     try:
         data = json.loads(re.search(r"\{.*\}", text, re.S).group(0))
         result = "FAIL" if str(data.get("result", "")).upper() == "FAIL" else "PASS"
@@ -116,23 +152,51 @@ def _review(message: str, draft: str, chunks: list[dict], tools: list[dict]) -> 
         return "PASS", "Reviewer output unreadable; draft kept."
 
 
-def _rewrite(message: str, draft: str, chunks: list[dict], tools: list[dict], reason: str) -> str:
+def _rewrite(message: str, draft: str, chunks: list[dict], tools: list[dict], reason: str,
+             context: dict | None = None) -> str:
     prompt = json.dumps({
         "customer_message": message,
+        "paysetu_system_context": context or {},
         "help_doc_sections": chunks,
         "tool_results": tools,
         "your_draft": draft,
         "reviewer_feedback": reason,
     }, ensure_ascii=False, indent=1)
-    resp = rag._client().models.generate_content(
-        model=config.CHAT_MODEL,
+    resp, _ = config.with_model_fallback(lambda model: rag._client().models.generate_content(
+        model=model,
         contents=prompt,
         config=types.GenerateContentConfig(
             system_instruction=SETU_INSTRUCTION + "\n\n## Rewrite task\n" + REWRITE_INSTRUCTION,
             temperature=0.2,
         ),
-    )
+    ))
     return (resp.text or "").strip()
+
+
+# ---------- context for Setu (sentiment + fraud) ----------
+def _context_block(sentiment: dict, mood: dict, risk: dict) -> str:
+    """A short note from PaySetu's own checks, put before the customer's words.
+    Only added when something notable was detected."""
+    notable = sentiment["label"] in ("Negative", "Angry") or mood["frustrated"] or risk["level"] != "Low"
+    if not notable:
+        return ""
+    lines = [CONTEXT_TAG,
+             f"Customer sentiment: {sentiment['label']} (score {sentiment['score']})"
+             + (f"; frustrated: yes ({mood['why']})" if mood["frustrated"] else "")]
+    if risk["level"] != "Low":
+        lines.append(f"Fraud risk: {risk['level']} - " + "; ".join(risk["reasons"][:3]))
+    lines.append("[/PaySetu system context]")
+    return "\n".join(lines) + "\n\nCustomer message:\n"
+
+
+def _localised(message: str, english: str, hindi: str) -> str:
+    return hindi if _DEVANAGARI.search(message) else english
+
+
+BUSY_REPLY_HI = "माफ़ कीजिए, अभी हमारी सेवा व्यस्त है इसलिए मैं जवाब नहीं दे पा रहा हूँ। कृपया एक मिनट बाद फिर कोशिश करें।"
+FRAUD_STEPS_EN = ("For your safety, please tap Block account in Settings right away and call the "
+                  "cybercrime helpline 1930.")
+FRAUD_STEPS_HI = "आपकी सुरक्षा के लिए, तुरंत Settings में Block account पर टैप करें और साइबर क्राइम हेल्पलाइन 1930 पर कॉल करें।"
 
 
 class SetuChat:
@@ -143,20 +207,55 @@ class SetuChat:
         self.qa = config.QA_ENABLED if qa is None else qa
         self.runner = InMemoryRunner(agent=root_agent, app_name=APP_NAME)
         self.session_id = _new_session(self.runner, APP_NAME)
+        # Backup model shares the same session store, so it continues the same conversation.
+        self.fallback_runner = (Runner(app_name=APP_NAME, agent=fallback_agent,
+                                       session_service=self.runner.session_service)
+                                if fallback_agent else None)
+        self.mood = sentiment_analysis.ConversationSentiment()
+        self.model_used = config.CHAT_MODEL
+
+    def _agent_turn(self, text: str):
+        """Ask Setu; if the main model's quota is used up, ask the backup model instead."""
+        if self.fallback_runner and config.main_model_paused():
+            self.model_used = config.FALLBACK_MODEL
+            return _run(self.fallback_runner, self.session_id, text)
+        try:
+            self.model_used = config.CHAT_MODEL
+            return _run(self.runner, self.session_id, text)
+        except Exception as exc:
+            if not (self.fallback_runner and config.is_quota_error(exc)):
+                raise
+            logging.warning("Main model quota exhausted; using backup model %s", config.FALLBACK_MODEL)
+            config.pause_main_model()
+            self.model_used = config.FALLBACK_MODEL
+            return _run(self.fallback_runner, self.session_id, text)
 
     def respond(self, message: str) -> dict:
-        """Full pipeline. Returns {reply, source, tickets, qa_result, qa_reason, draft}."""
+        """Full pipeline. Returns reply plus everything the UI and logs need."""
         started = time.perf_counter()
-        safe_message, removed = redact(message)
+        safe_message, removed = redact(strip_fake_context(message))
+
+        # Sentiment and fraud checks run in code, before the AI sees the message.
+        sentiment = sentiment_analysis.analyze(safe_message)
+        mood = self.mood.add(sentiment)
+        risk = fraud_detection.assess(safe_message, removed)
+
         out = {"reply": BUSY_REPLY, "source": "none", "tickets": [], "qa_result": "", "qa_reason": "",
                "draft": "", "redacted": removed, "session_id": self.session_id,
-               "outcome": "Service busy", "response_ms": 0}
+               "outcome": "Service busy", "response_ms": 0,
+               "sentiment": sentiment, "mood": mood, "fraud": risk, "transaction": None,
+               "model": config.CHAT_MODEL}
+        agent_input = _context_block(sentiment, mood, risk) + safe_message
         try:
-            draft, tool_results = _run(self.runner, self.session_id, safe_message)
+            draft, tool_results = self._agent_turn(agent_input)
         except Exception as exc:  # Gemini busy/quota errors after all retries
             logging.warning("Setu could not reply: %s", exc)
-            out["response_ms"] = int((time.perf_counter() - started) * 1000)
-            self._log(safe_message, out)
+            self._escalate(safe_message, sentiment, mood, risk, [], out)
+            reply = _localised(safe_message, BUSY_REPLY, BUSY_REPLY_HI)
+            if risk["level"] == "High":  # safety steps can never be skipped, even when Gemini is down
+                reply += "\n\n" + _localised(safe_message, FRAUD_STEPS_EN, FRAUD_STEPS_HI)
+            out["reply"] = reply + self._ticket_lines(out["tickets"], "", safe_message)
+            self._finish(safe_message, out, started)
             return out
         draft = draft or BUSY_REPLY
         out["draft"] = draft
@@ -165,53 +264,110 @@ class SetuChat:
         tools = [{"tool": name, "result": r} for name, r in tool_results if name != "search_help_docs"]
         tickets = [r["ticket_id"] for name, r in tool_results
                    if name == "create_ticket" and r.get("ticket_id")]
-        out["tickets"] = tickets
+
+        # Re-check fraud with the VERIFIED transaction, if one was looked up.
+        txn = next((r.get("transaction") for name, r in tool_results
+                    if name == "get_transaction_status" and r.get("status") == "found"), None)
+        if txn:
+            out["transaction"] = txn
+            risk = fraud_detection.combine(risk, fraud_detection.assess(safe_message, removed, txn))
+            out["fraud"] = risk
+
+        # Escalation safety nets (High fraud -> high-priority ticket; angry/frustrated -> ticket).
+        tickets = self._escalate(safe_message, sentiment, mood, risk, tickets, out)
+        for tid in tickets:
+            if not any(t.get("result", {}).get("ticket_id") == tid for t in tools):
+                tools.append({"tool": "create_ticket", "result": {"ticket_id": tid, "created_by": "PaySetu safety check"}})
+        context = {"sentiment": sentiment["label"], "frustrated": mood["frustrated"],
+                   "fraud_risk": risk["level"], "fraud_reasons": risk["reasons"][:3]}
 
         reply = draft
         if self.qa and draft != BUSY_REPLY:
             script_problem = _script_mismatch(safe_message, draft)
-            if script_problem:  # deterministic check, no AI call needed
+            fake = _bad_sources(draft)
+            if script_problem:  # deterministic checks first, no AI call needed
                 result, reason = "FAIL", script_problem
+            elif fake:
+                result, reason = "FAIL", (f"Cited source '{fake[0]}' is not a real help-doc section. Use only the "
+                                          "'source' values from help_doc_sections, or drop the label.")
             else:
                 try:
-                    result, reason = _review(safe_message, draft, chunks, tools)
+                    result, reason = _review(safe_message, draft, chunks, tools, context)
                 except Exception as exc:
                     result, reason = "SKIPPED", f"Reviewer unavailable: {exc}"[:200]
             storage.log_qa(safe_message, draft, result, reason)
             out["qa_result"], out["qa_reason"] = result, reason
             if result == "FAIL":
                 try:
-                    reply = _rewrite(safe_message, draft, chunks, tools, reason) or draft
+                    reply = _rewrite(safe_message, draft, chunks, tools, reason, context) or draft
                 except Exception as exc:
                     logging.warning("Rewrite failed, keeping draft: %s", exc)
 
+        # Safety net: never show a made-up source label.
+        reply = _remove_bad_sources(reply)
+        # Safety net: High fraud risk always gets Block account + 1930.
+        if risk["level"] == "High" and not ("1930" in reply and "Block account" in reply):
+            reply += "\n\n" + _localised(safe_message, FRAUD_STEPS_EN, FRAUD_STEPS_HI)
         # Safety net: a created ticket's real ID must always reach the customer.
-        for tid in tickets:
-            if tid not in reply:
-                reply += f"\n\nYour ticket ID is {tid}. A person from our team will reply within 24 hours."
-
-        # Safety net: every ticket from this chat is linked to this chat's session.
-        for tid in tickets:
-            try:
-                t = ticket_manager.get_ticket(tid)
-                if t and not t.get("session_id"):
-                    ticket_manager.update_fields(tid, session_id=self.session_id)
-            except Exception as exc:
-                logging.warning("Could not link ticket %s to session: %s", tid, exc)
+        reply += self._ticket_lines(tickets, reply, safe_message)
 
         out["reply"] = reply
-        out["source"] = _source_of(reply)
-        out["outcome"] = classify_outcome(reply, out["source"], tickets)
-        out["response_ms"] = int((time.perf_counter() - started) * 1000)
-        self._log(safe_message, out)
+        self._finish(safe_message, out, started)
         return out
 
-    def _log(self, safe_message: str, out: dict) -> None:
+    # ---------- helpers ----------
+    def _escalate(self, safe_message, sentiment, mood, risk, tickets, out) -> list[str]:
+        """Create the tickets the rules require if the AI did not, then tag every ticket
+        from this turn with session, sentiment and fraud risk."""
+        tickets = list(tickets)
+        try:
+            mine = ticket_manager.open_tickets(session_id=self.session_id)
+            if risk["level"] == "High" and not tickets and not any(
+                    t["reason"] in ticket_manager.HIGH_PRIORITY_REASONS for t in mine):
+                reasons = "; ".join(r.split(" (")[0] for r in risk["reasons"][:2])
+                t = ticket_manager.create_ticket(
+                    f"Possible fraud reported by customer: {reasons}.", "Fraud or hacked account", "high",
+                    session_id=self.session_id)
+                tickets.append(t["ticket_id"])
+            elif mood["frustrated"] and not tickets and not mine:
+                t = ticket_manager.create_ticket(
+                    f"Upset customer needs a person ({mood['why']}).", "Angry or upset customer", "normal",
+                    session_id=self.session_id)
+                tickets.append(t["ticket_id"])
+            for tid in tickets:
+                ticket_manager.update_fields(tid, session_id=self.session_id, sentiment=sentiment["label"],
+                                             fraud_risk=risk["level"], model=out["model"])
+        except Exception as exc:
+            logging.warning("Escalation check failed: %s", exc)
+        out["tickets"] = tickets
+        return tickets
+
+    @staticmethod
+    def _ticket_lines(tickets: list[str], reply: str, safe_message: str) -> str:
+        extra = ""
+        for tid in tickets:
+            if tid not in reply:
+                extra += "\n\n" + _localised(
+                    safe_message,
+                    f"Your ticket ID is {tid}. A person from our team will reply within 24 hours.",
+                    f"आपका टिकट ID {tid} है। हमारी टीम का एक व्यक्ति 24 घंटे के अंदर जवाब देगा।")
+        return extra
+
+    def _finish(self, safe_message: str, out: dict, started: float) -> None:
+        out["source"] = _source_of(out["reply"])
+        out["outcome"] = classify_outcome(out["reply"], out["source"], out["tickets"])
+        out["response_ms"] = int((time.perf_counter() - started) * 1000)
+        out["model"] = self.model_used
+        risk, sentiment = out["fraud"], out["sentiment"]
         try:
             storage.log_chat(safe_message, out["reply"], out["source"], session_id=self.session_id,
-                             outcome=out["outcome"], response_ms=out["response_ms"])
+                             outcome=out["outcome"], response_ms=out["response_ms"],
+                             sentiment=sentiment["label"], sentiment_score=sentiment["score"],
+                             fraud_risk=risk["level"], model=out["model"])
+            if risk["level"] != "Low":
+                storage.log_fraud(self.session_id, risk, safe_message, out["tickets"])
         except Exception as exc:
-            logging.warning("Could not write chat log: %s", exc)
+            logging.warning("Could not write logs: %s", exc)
 
     def ask(self, message: str) -> str:
         return self.respond(message)["reply"]

@@ -51,8 +51,15 @@ def create_ticket(message: str, reason: str, priority: str, tool_context: ToolCo
     """
     try:
         session = getattr(tool_context, "session", None)
-        ticket = ticket_manager.create_ticket(message, reason, priority,
-                                              session_id=getattr(session, "id", "") or "")
+        session_id = getattr(session, "id", "") or ""
+        # One ticket per issue per chat: a repeat request returns the existing ticket.
+        same = [t for t in ticket_manager.open_tickets(session_id=session_id)
+                if session_id and t["reason"] == ticket_manager.normalise_reason(reason)]
+        if same:
+            t = same[-1]
+            return {"status": "already_open", "ticket_id": t["ticket_id"], "priority": t["priority"],
+                    "reason": t["reason"], "follow_up": "A human representative will reply within 24 hours."}
+        ticket = ticket_manager.create_ticket(message, reason, priority, session_id=session_id)
     except Exception as exc:
         logging.error("create_ticket failed: %s", exc)
         return {"status": "error", "message": "Ticket could not be saved."}

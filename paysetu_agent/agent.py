@@ -11,7 +11,7 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from . import rag
-from .config import CHAT_MODEL, retry_options
+from .config import CHAT_MODEL, FALLBACK_MODEL, retry_options
 from .prompts import QA_INSTRUCTION, SETU_INSTRUCTION
 from .tools import create_ticket, get_transaction_status, search_help_docs
 
@@ -26,14 +26,20 @@ def _config(temperature: float) -> types.GenerateContentConfig:
     return types.GenerateContentConfig(temperature=temperature, http_options=retry_options())
 
 
-root_agent = Agent(
-    name="setu",
-    model=CHAT_MODEL,
-    description="PaySetu Wallet customer support agent.",
-    instruction=SETU_INSTRUCTION,
-    tools=[search_help_docs, create_ticket, get_transaction_status],
-    generate_content_config=_config(0.2),  # low = consistent, factual replies
-)
+def make_setu(model: str, name: str = "setu") -> Agent:
+    return Agent(
+        name=name,
+        model=model,
+        description="PaySetu Wallet customer support agent.",
+        instruction=SETU_INSTRUCTION,
+        tools=[search_help_docs, create_ticket, get_transaction_status],
+        generate_content_config=_config(0.2),  # low = consistent, factual replies
+    )
+
+
+root_agent = make_setu(CHAT_MODEL)
+# Same Setu on the backup model (used only when the main model's quota is exhausted).
+fallback_agent = make_setu(FALLBACK_MODEL) if FALLBACK_MODEL else None
 
 
 class QAResult(BaseModel):
@@ -41,11 +47,16 @@ class QAResult(BaseModel):
     reason: str = Field(description="One short sentence")
 
 
-qa_agent = Agent(
-    name="qa_reviewer",
-    model=CHAT_MODEL,
-    description="Reviews Setu's draft replies before the customer sees them.",
-    instruction=QA_INSTRUCTION,
-    output_schema=QAResult,
-    generate_content_config=_config(0.0),
-)
+def make_qa(model: str) -> Agent:
+    return Agent(
+        name="qa_reviewer",
+        model=model,
+        description="Reviews Setu's draft replies before the customer sees them.",
+        instruction=QA_INSTRUCTION,
+        output_schema=QAResult,
+        generate_content_config=_config(0.0),
+    )
+
+
+qa_agent = make_qa(CHAT_MODEL)
+qa_fallback_agent = make_qa(FALLBACK_MODEL) if FALLBACK_MODEL else None

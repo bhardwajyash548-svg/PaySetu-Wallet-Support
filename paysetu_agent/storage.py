@@ -15,8 +15,9 @@ from . import config
 
 # Original brief columns first, enterprise columns after.
 CHAT_FIELDS = ["time", "message", "reply", "source",
-               "session_id", "outcome", "response_ms", "sentiment", "sentiment_score", "fraud_risk"]
+               "session_id", "outcome", "response_ms", "sentiment", "sentiment_score", "fraud_risk", "model"]
 QA_FIELDS = ["time", "message", "draft", "result", "reason"]
+FRAUD_FIELDS = ["time", "session_id", "level", "points", "reasons", "message", "ticket_ids"]
 
 lock = threading.RLock()  # one lock for all CSV writes in this process
 
@@ -91,3 +92,10 @@ def log_chat(message: str, reply: str, source: str, **extra) -> None:
 def log_qa(message: str, draft: str, result: str, reason: str) -> None:
     append_row(config.QA_LOG_FILE, QA_FIELDS,
                {"time": now(), "message": message, "draft": draft, "result": result, "reason": reason})
+
+
+def log_fraud(session_id: str, risk: dict, message: str, ticket_ids: list[str]) -> None:
+    """Medium/High fraud assessments, for the admin fraud-alert view."""
+    append_row(config.FRAUD_ALERTS_FILE, FRAUD_FIELDS, {
+        "time": now(), "session_id": session_id, "level": risk["level"], "points": risk["points"],
+        "reasons": " | ".join(risk["reasons"]), "message": message, "ticket_ids": " ".join(ticket_ids)})
